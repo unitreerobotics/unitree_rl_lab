@@ -2,7 +2,7 @@ import numpy as np
 import sys, os
 import torch
 from tqdm import tqdm
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
 import gymnasium as gym
 
@@ -44,15 +44,19 @@ History size of 5 is used (original observation is size 78)
 +-------+---------------------+-----------+
 |   0   | JointPositionAction |        23 |
 +-------+---------------------+-----------+
-
+TERMINATIONS
+sim dt = 0.005
+control dt = 0.02
+episode length: 20 seconds
+max episode length (timesteps): 1000
 '''
 class TrajectoryCollector():
 
-    def __init__(self, env, policy, N=500, state_action_only=True):
+    def __init__(self, env, policy, N=500, state_action_only=False):
         self.env = env
         # numer of different trajectories
         self.N = N
-        # trained torch policy. Assumes policy.predict method exists 
+        # trained torch policy
         self.policy = policy
         self.state_action_only = state_action_only
 
@@ -78,18 +82,21 @@ class TrajectoryCollector():
 
     def get_trajectory(self, x):
         terminate = False
-        truncate = False
 
         trajectory = []
-        while not truncate and not terminate:
+        while not terminate:
             # get action for current state x
             a = self.get_action(x)
             # get next state
             x_prime, reward, terminate, info = self.env.step(a)
+            # print(x.shape, a.shape, x_prime.shape)
+            state_cpu = x[0].detach().cpu()
+            action_cpu = a[0].detach().cpu()
             if self.state_action_only:
-                trajectory.append((x, a))
+                trajectory.append((state_cpu, action_cpu))
             else:
-                trajectory.append((x, a, x_prime))
+                next_state_cpu = x_prime[0].detach().cpu()
+                trajectory.append((state_cpu, action_cpu, next_state_cpu))
             # update x to be next state
             x = x_prime
 
@@ -125,7 +132,7 @@ class TrajectoryDataset(Dataset):
         self.states = torch.tensor(states, dtype=torch.float32)
         self.actions = torch.tensor(actions, dtype=torch.float32)
 
-    def load_torch(self, filename):
+    def load_dataset(self, filename):
         '''
         Loads trajectories.npz as a flattened torch tensor of (s, a, s') or (s, a)
         '''
@@ -134,7 +141,7 @@ class TrajectoryDataset(Dataset):
         return loaded_data
     
     def __len__(self):
-        return len(self.dataset)
+        return len(self.states)
 
     def __getitem__(self, idx):
         if self.state_action_only:
@@ -147,25 +154,23 @@ class TrajectoryDataset(Dataset):
 if __name__ == '__main__':
     cur_dir = os.path.dirname(os.path.abspath(__file__))
 
-    # parser = argparse.ArgumentParser(description="Collect a dataset.")
-    # cli_args.add_rsl_rl_args(parser)
-    # args_cli = parser.parse_args()
     env_id = 'Unitree-G1-23dof-Balance'
-    policy_path = os.path.join(cur_dir, 'policies/2025-08-25_17-08-47/model_100.pt')
-    
+    policy_path = os.path.join(cur_dir, '/hdd/users/mat028/research/unitree_rl_lab/scripts/stability/logs/2025-08-27_16-50-30/model_1100.pt')
     print(f"Loading environment: {env_id}")
     print(f"Loading policy from: {policy_path}")
     
-    env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path)
+    env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path, episode_length_s=0.1)
 
     print('##### Data Collection ######')
     # save path
-    save_path = os.path.join(cur_dir, 'g1_balance_5_newton.npz')
-    num_trajectories = 5
-    state_action_only = True
+    save_path = os.path.join(cur_dir, 'logs', 'g1_balance_5_newton_100_traj_1s.npz')
+    num_trajectories = 100
+    state_action_only = False
     dataset = TrajectoryCollector(env, policy=policy, N=num_trajectories, state_action_only=state_action_only)
     print('Building Dataset...')
     trajectories = dataset.build()
+
+
     print('Saving flattened dataset of {} tracectories...'.format(len(trajectories)))
     dataset.save(trajectories, filename=save_path)
 
@@ -173,4 +178,26 @@ if __name__ == '__main__':
     load_path = save_path
     loaded_data = TrajectoryDataset(load_path, state_action_only=state_action_only)
     print('Loaded {} transitions.'.format(len(loaded_data)))
- 
+    # Create dataloader from your dataset
+    dataloader = DataLoader(
+        loaded_data,
+        batch_size=32,
+        shuffle=True,
+        num_workers=0 
+    )
+
+    batch = next(iter(dataloader))
+    if state_action_only:
+        states, actions = batch
+    else:
+        states, actions, next_states = batch
+
+    print(f"dtype: {states.dtype}")
+    print(f"States shape: {states.shape}")
+    print(f"Actions shape: {actions.shape}")
+    if not state_action_only:
+        print(f"Next states shape: {next_states.shape}")
+
+    # close env and simulator
+    env.close()
+    close_down()

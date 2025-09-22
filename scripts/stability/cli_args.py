@@ -95,3 +95,15 @@ def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Name
         agent_cfg.experiment_name = task_name.lower().replace("-", "_").removesuffix("_play")
 
     return agent_cfg
+
+
+def add_lyapunov_train_args(parser):    
+    parser.add_argument('--lr', type=float, default=0.001, help='Learning rate (default: 0.001)')
+    parser.add_argument('--hidden_sizes', type=int, nargs='+', default=[512, 256, 128], 
+                       help='Hidden layer sizes (default: 512 256 128)')
+    parser.add_argument('--falsifier', action='store_true', help='Use sampling-based falsifier')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch size (default: 128)')
+    parser.add_argument('--epochs', type=int, default=100, help='Number of training epochs (default: 20)')
+    parser.add_argument('--test_split', type=float, default=0.2, help='Test split ratio (default: 0.2)')
+    parser.add_argument('--alpha', type=float, default=0.0, help='Parameter on circle tuning term.')
+    parser.add_argument('--no_lyapunov_by_construction', action='store_false', dest='lyapunov_by_construction', default=True)

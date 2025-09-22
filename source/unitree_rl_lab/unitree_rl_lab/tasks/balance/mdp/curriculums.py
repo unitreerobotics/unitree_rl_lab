@@ -7,6 +7,47 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+from isaaclab.envs.mdp.curriculums import modify_env_param
+
+def modify_force_range(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    old_value: tuple,
+    steps_per_level: int = 1000,
+    max_level: int = 10,
+) -> tuple | object:
+    target_level = min(env.common_step_counter // steps_per_level, max_level)
+    
+    if target_level > old_value[1]:
+        new_force_max = float(target_level)
+        return (-new_force_max, new_force_max)
+    
+    return modify_env_param.NO_CHANGE
+
+def modify_torque_range(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    old_value: tuple,
+    steps_per_level: int = 1000,
+    max_level: int = 10,
+) -> tuple | object:
+    target_level = min(env.common_step_counter // steps_per_level, max_level)
+    
+    if target_level > old_value[1]:
+        new_torque_max = float(target_level)
+        return (-new_torque_max, new_torque_max)
+    
+    return modify_env_param.NO_CHANGE
+
+def force_torque_levels(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    steps_per_level: int = 1000,
+    max_level: int = 10
+) -> torch.Tensor:
+    target_level = min(env.common_step_counter // steps_per_level, max_level)
+    return torch.tensor(target_level, device=env.device)
+
 
 def lin_vel_cmd_levels(
     env: ManagerBasedRLEnv,

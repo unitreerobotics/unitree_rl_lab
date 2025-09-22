@@ -1,0 +1,254 @@
+--- git status ---
+On branch main
+Your branch is ahead of 'origin/main' by 2 commits.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+	modified:   source/unitree_rl_lab/unitree_rl_lab/tasks/balance/robots/g1/23dof/balance_env_cfg.py
+
+no changes added to commit (use "git add" and/or "git commit -a") 
+
+
+--- git diff ---
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+index 4070b04..bda341e 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/assets/robots/unitree.py
+@@ -27,7 +27,7 @@ class UnitreeArticulationCfg(ArticulationCfg):
+     soft_joint_pos_limit_factor = 0.9
+ 
+ 
+-UNITREE_MODEL_DIR = "//home/hongzhan/unitree_balance/unitree_rl_lab/unitree_model"
++UNITREE_MODEL_DIR = "/hdd/users/mat028/research/unitree_rl_lab/unitree_model"
+ 
+ 
+ UNITREE_GO2_CFG = UnitreeArticulationCfg(
+@@ -534,37 +534,17 @@ UNITREE_G1_23DOF_CFG_IMPLICIT = UnitreeArticulationCfg(
+     init_state=ArticulationCfg.InitialStateCfg(
+         pos=(0.0, 0.0, 0.8),
+         joint_pos={
++            "left_hip_pitch_joint": -0.1,
++            "right_hip_pitch_joint": -0.1,
++            ".*_knee_joint": 0.3,
++            ".*_ankle_pitch_joint": -0.2,
+             ".*_shoulder_pitch_joint": 0.3,
+             "left_shoulder_roll_joint": 0.25,
+             "right_shoulder_roll_joint": -0.25,
+             ".*_elbow_joint": 0.97,
+             "left_wrist_roll_joint": 0.15,
+             "right_wrist_roll_joint": -0.15,
+-            "left_hip_pitch_joint": -0.22,
+-            "left_hip_roll_joint": -0.013,
+-            "left_hip_yaw_joint": -0.13,
+-            "left_knee_joint": -0.009,
+-            "left_ankle_pitch_joint": 0.249,
+-            "left_ankle_roll_joint": -0.019,
+-            "right_hip_pitch_joint": -0.0283,
+-            "right_hip_roll_joint": -0.00477,
+-            "right_hip_yaw_joint": -0.1085,
+-            "right_knee_joint": 0.38795,
+-            "right_ankle_pitch_joint": -0.351,
+-            "right_ankle_roll_joint": -0.00481,
+         },
+-        # joint_pos={
+-        #     "left_hip_pitch_joint": -0.1,
+-        #     "right_hip_pitch_joint": -0.1,
+-        #     ".*_knee_joint": 0.3,
+-        #     ".*_ankle_pitch_joint": -0.2,
+-        #     ".*_shoulder_pitch_joint": 0.3,
+-        #     "left_shoulder_roll_joint": 0.25,
+-        #     "right_shoulder_roll_joint": -0.25,
+-        #     ".*_elbow_joint": 0.97,
+-        #     "left_wrist_roll_joint": 0.15,
+-        #     "right_wrist_roll_joint": -0.15,
+-        # },
+         joint_vel={".*": 0.0},
+     ),
+     actuators={
+diff --git a/source/unitree_rl_lab/unitree_rl_lab/tasks/balance/robots/g1/23dof/balance_env_cfg.py b/source/unitree_rl_lab/unitree_rl_lab/tasks/balance/robots/g1/23dof/balance_env_cfg.py
+index 73d91a7..59f60f3 100644
+--- a/source/unitree_rl_lab/unitree_rl_lab/tasks/balance/robots/g1/23dof/balance_env_cfg.py
++++ b/source/unitree_rl_lab/unitree_rl_lab/tasks/balance/robots/g1/23dof/balance_env_cfg.py
+@@ -23,8 +23,45 @@ from unitree_rl_lab.tasks.balance import mdp
+ 
+ # implicit motor (uses PDControl under the hood)
+ USE_IMPLICIT = True
+-# actions are torques and not position
++# actions are torques and not position (deployment code can't handle this yet)
+ USE_TORQUE = False
++# use lower body + waist only in action space (13 actions vs 23)
++USE_LOWER_ONLY = False
++
++ANKLES = [".*ankle.*"]
++HIPS = [".*_hip_roll_.*", ".*_hip_pitch_.*", ".*_hip_yaw_.*"]
++KNEES = [".*_knee_.*"]
++WAIST = ["waist_yaw_joint"]
++LOWER_JOINTS = HIPS + KNEES + ANKLES + WAIST
++
++if USE_LOWER_ONLY:
++    # lower body + waist only
++    ACTION_JOINTS = LOWER_JOINTS
++else:
++
++    ACTION_JOINTS = [".*"]
++
++if USE_TORQUE:
++    group_scale = {
++        "N7520-14.3": 0.6,          # hips (pitch/yaw) + waist_yaw
++        "N7520-22.5": 0.6,          # hip_roll + knees
++        "N5020-16": 0.7,            # shoulder/elbow/wrist_roll
++        "N5020-16-parallel": 0.7,   # ankles
++    }
++
++    effort_scale_dict = {
++        ".*_hip_pitch_.*": group_scale["N7520-14.3"] * 88.0,
++        ".*_hip_yaw_.*":   group_scale["N7520-14.3"] * 88.0,
++        "waist_yaw_joint": group_scale["N7520-14.3"] * 88.0,
++        ".*_hip_roll_.*":  group_scale["N7520-22.5"] * 139.0,
++        ".*_knee_.*":      group_scale["N7520-22.5"] * 139.0,
++        ".*_shoulder_.*":  group_scale["N5020-16"] * 25.0,
++        ".*_elbow_.*":     group_scale["N5020-16"] * 25.0,
++        ".*_wrist_roll_.*":group_scale["N5020-16"] * 25.0,
++        ".*ankle.*":       group_scale["N5020-16-parallel"] * 35.0,
++    }
++    effort_clip_dict = {k: (-v, v) for k, v in effort_scale_dict.items()}
++
+ 
+ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+     size=(8.0, 8.0),
+@@ -120,15 +157,13 @@ class EventCfg:
+     )
+ 
+     # reset
+-    base_external_force_torque = EventTerm(
++    base_external_force = EventTerm(
+         func=mdp.apply_external_force_torque,
+-        mode="reset",
+-        params={
++            mode="reset",
++            params={
+             "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+-            # "force_range": (-5, 5),
+-            # "torque_range": (-5, 5),
+-            "force_range": (-10, 10),
+-            "torque_range": (-10, 10),
++            "force_range": (-5, 5),
++            "torque_range": (-5, 5),
+         },
+     )
+ 
+@@ -158,12 +193,23 @@ class EventCfg:
+     )
+ 
+     # interval
+-    push_robot = EventTerm(
+-        func=mdp.push_by_setting_velocity,
+-        mode="interval",
+-        interval_range_s=(5.0, 5.0),
+-        params={"velocity_range": {"x": (0, 0), "y": (0, 0)}},
+-    )
++
++    # base_external_force_torque_interval = EventTerm(
++    #     func=mdp.apply_external_force_torque,
++    #         mode="interval",
++    #         interval_range_s=(5.0, 10),
++    #         params={
++    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
++    #         "force_range": (-5, 5),
++    #         "torque_range": (-5, 5),
++    #     },
++    # )
++    # push_robot = EventTerm(
++    #     func=mdp.push_by_setting_velocity,
++    #     mode="interval",
++    #     interval_range_s=(5.0, 5.0),
++    #     params={"velocity_range": {"x": (0, 0), "y": (0, 0)}},
++    # )
+ 
+ 
+ @configclass
+@@ -188,19 +234,20 @@ class CommandsCfg:
+ @configclass
+ class ActionsCfg:
+     """Action specifications for the MDP."""
+-
+     if USE_TORQUE:
+-        # TODO scale should be in real torque limit range?
+         JointEffortAction = mdp.JointEffortActionCfg(asset_name="robot", 
+-													 joint_names=[".*"], 
+-													 scale=1.0) # to be defined
++													 joint_names=ACTION_JOINTS, 
++													 scale=effort_scale_dict,
++													 clip = effort_clip_dict
++													)
+     else:
+         JointPositionAction = mdp.JointPositionActionCfg(
+-            asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True
++            asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
+         )
+ 
+ 
+ 
++
+ @configclass
+ class ObservationsCfg:
+     """Observation specifications for the MDP."""
+@@ -311,17 +358,17 @@ class RewardsCfg:
+     base_height = RewTerm(func=mdp.base_height_l2, weight=-10, params={"target_height": 0.78})
+ 
+     # -- feet
+-    # gait = RewTerm(
+-    #     func=mdp.feet_gait,
+-    #     weight=0.5,
+-    #     params={
+-    #         "period": 0.8,
+-    #         "offset": [0.0, 0.5],
+-    #         "threshold": 0.55,
+-    #         "command_name": "base_velocity",
+-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll.*"),
+-    #     },
+-    # )
++    gait = RewTerm(
++        func=mdp.feet_gait,
++        weight=0.5,
++        params={
++            "period": 0.8,
++            "offset": [0.0, 0.5],
++            "threshold": 0.55,
++            "command_name": "base_velocity",
++            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll.*"),
++        },
++    )
+     feet_slide = RewTerm(
+         func=mdp.feet_slide,
+         weight=-0.2,
+@@ -338,16 +385,16 @@ class RewardsCfg:
+             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_pitch.*"),
+         },
+     )
+-    # feet_clearance = RewTerm(
+-    #     func=mdp.foot_clearance_reward,
+-    #     weight=1.0,
+-    #     params={
+-    #         "std": 0.05,
+-    #         "tanh_mult": 2.0,
+-    #         "target_height": 0.1,
+-    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_roll.*"),
+-    #     },
+-    # )
++    feet_clearance = RewTerm(
++        func=mdp.foot_clearance_reward,
++        weight=1.0,
++        params={
++            "std": 0.05,
++            "tanh_mult": 2.0,
++            "target_height": 0.1,
++            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_roll.*"),
++        },
++    )
+ 
+     # -- other
+     undesired_contacts = RewTerm(

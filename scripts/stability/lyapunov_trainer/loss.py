@@ -2,13 +2,18 @@ import torch
 
 class LyapunovRisk(torch.nn.Module):
     def __init__(self, lyapunov_factor=1., lie_factor=1., equilibrium_factor=1., 
-                 lie_offset=0.5):
+                 lie_offset=0.1):
         super(LyapunovRisk, self).__init__()
         self.relu = torch.nn.ReLU()
         self.lyapunov_factor = lyapunov_factor
         self.lie_factor = lie_factor
         self.equilibrium_factor = equilibrium_factor
         self.lie_offset = lie_offset
+        
+        # Store individual loss components for logging
+        self.V_loss = None
+        self.lie_loss = None
+        self.eq_loss = None
 
     def forward(self, V_candidate, L_V, V_X0):
         '''
@@ -24,11 +29,14 @@ class LyapunovRisk(torch.nn.Module):
         # Lyapuvonv function evaluated at equilibrium points should be 0
         eq_loss = V_X0**2
         
+        self.V_loss = V_loss.mean().item()
+        self.lie_loss = lie_loss.mean().item()
+        self.eq_loss = eq_loss.item()
+        
         # weight loss factors individually
         total_risk = (self.lyapunov_factor*V_loss +  self.lie_factor*lie_loss).mean() + self.equilibrium_factor*eq_loss
 
         return total_risk
-    
 
 class CircleTuningLoss(torch.nn.Module):
     def __init__(self, state_max, tuning_factor=0.1):

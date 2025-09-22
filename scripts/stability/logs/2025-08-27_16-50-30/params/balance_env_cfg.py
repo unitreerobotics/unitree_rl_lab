@@ -34,10 +34,6 @@ KNEES = [".*_knee_.*"]
 WAIST = ["waist_yaw_joint"]
 LOWER_JOINTS = HIPS + KNEES + ANKLES + WAIST
 
-# Force and torque curriculum
-STEPS_PER_LEVEL = 5000
-MAX_LEVEL = 8
-
 if USE_LOWER_ONLY:
     # lower body + waist only
     ACTION_JOINTS = LOWER_JOINTS
@@ -160,16 +156,16 @@ class EventCfg:
         },
     )
 
-    # reset forces and torques (handled by curriculum)
-    # base_external_force = EventTerm(
-    #     func=mdp.apply_external_force_torque,
-    #         mode="reset",
-    #         params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-    #         "force_range": (-0.1, 0.1),
-    #         "torque_range": (-0.1, 0.1),
-    #     },
-    # )
+    # reset
+    base_external_force = EventTerm(
+        func=mdp.apply_external_force_torque,
+            mode="reset",
+            params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "force_range": (-5, 5),
+            "torque_range": (-5, 5),
+        },
+    )
 
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -198,16 +194,16 @@ class EventCfg:
 
     # interval
 
-    base_external_force = EventTerm(
-        func=mdp.apply_external_force_torque,
-            mode="interval",
-            interval_range_s=(5.0, 6.0),
-            params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-            "force_range": (-0.5, 0.5),
-            "torque_range": (-0.5, 0.5),
-        },
-    )
+    # base_external_force_torque_interval = EventTerm(
+    #     func=mdp.apply_external_force_torque,
+    #         mode="interval",
+    #         interval_range_s=(5.0, 10),
+    #         params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+    #         "force_range": (-5, 5),
+    #         "torque_range": (-5, 5),
+    #     },
+    # )
     # push_robot = EventTerm(
     #     func=mdp.push_by_setting_velocity,
     #     mode="interval",
@@ -287,6 +283,11 @@ class ObservationsCfg:
         joint_pos_rel = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel_rel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05)
         last_action = ObsTerm(func=mdp.last_action)
+        # gait_phase = ObsTerm(func=mdp.gait_phase, params={"period": 0.8})
+        # height_scanner = ObsTerm(func=mdp.height_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+        #     clip=(-1.0, 5.0),
+        # )
 
         def __post_init__(self):
             self.history_length = 5
@@ -346,23 +347,28 @@ class RewardsCfg:
             )
         },
     )
-    # joint_deviation_legs = RewTerm(
-    #     func=mdp.joint_deviation_l1,
-    #     weight=-1.0,
-    #     params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
-    # )
-
-    # penalty on all hips
     joint_deviation_legs = RewTerm(
         func=mdp.joint_deviation_l1,
         weight=-1.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=HIPS+KNEES)},
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
     )
+
     # -- robot
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-5.0)
     base_height = RewTerm(func=mdp.base_height_l2, weight=-10, params={"target_height": 0.78})
 
     # -- feet
+    gait = RewTerm(
+        func=mdp.feet_gait,
+        weight=0.5,
+        params={
+            "period": 0.8,
+            "offset": [0.0, 0.5],
+            "threshold": 0.55,
+            "command_name": "base_velocity",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll.*"),
+        },
+    )
     feet_slide = RewTerm(
         func=mdp.feet_slide,
         weight=-0.2,
@@ -371,14 +377,14 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll.*"),
         },
     )
-    # feet_slide = RewTerm(
-    #     func=mdp.feet_slide,
-    #     weight=-0.2,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_pitch.*"),
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_pitch.*"),
-    #     },
-    # )
+    feet_slide = RewTerm(
+        func=mdp.feet_slide,
+        weight=-0.2,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_pitch.*"),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_pitch.*"),
+        },
+    )
     feet_clearance = RewTerm(
         func=mdp.foot_clearance_reward,
         weight=1.0,
@@ -416,33 +422,6 @@ class CurriculumCfg:
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     lin_vel_cmd_levels = CurrTerm(mdp.lin_vel_cmd_levels)
 
-    force_torque_levels = CurrTerm(func=mdp.force_torque_levels,
-                                   params={"steps_per_level": STEPS_PER_LEVEL,
-                                           "max_level": MAX_LEVEL})
-
-    force_levels = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "events.base_external_force.params.force_range",
-            "modify_fn": mdp.modify_force_range,
-            "modify_params": {
-                "steps_per_level": STEPS_PER_LEVEL,
-                "max_level": MAX_LEVEL
-            }
-        }
-    )
-    
-    torque_levels = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "events.base_external_force.params.force_range",
-            "modify_fn": mdp.modify_torque_range,
-            "modify_params": {
-                "steps_per_level": STEPS_PER_LEVEL,
-                "max_level": MAX_LEVEL
-            }
-        }
-    )
 
 @configclass
 class RobotEnvCfg(ManagerBasedRLEnvCfg):
@@ -494,7 +473,3 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_rows = 2
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
-        
-        self.episode_length_s = 10.0
-        self.events.base_external_force.params["force_range"] = (-10, 10)
-        self.events.base_external_force.params["torque_range"] = (-10, 10)
