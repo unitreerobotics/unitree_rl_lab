@@ -71,7 +71,8 @@ def export_deploy_cfg(env: ManagerBasedRLEnv, log_dir):
         term_cfg = term_cfg.to_dict()
 
         for _ in ["class_type", "asset_name", "debug_vis", "preserve_order", "use_default_offset"]:
-            del term_cfg[_]
+            if _ in term_cfg:
+                del term_cfg[_]
         cfg["actions"][action_name] = term_cfg
 
         if action_term._joint_ids == slice(None):

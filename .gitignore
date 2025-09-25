@@ -57,12 +57,12 @@ _build
 **/runs/*
 **/logs/*
 **/recordings/*
-
+**/results/
 # Pre-Trained Checkpoints
 /.pretrained_checkpoints/
 
 # Teleop Recorded Dataset
-datasets
+**/datasets/*
 
 # Deploy
 *.pt
@@ -70,3 +70,6 @@ datasets
 *.mtl
 *.STL
 **/env.yaml
+
+# unitree file (if added here)
+unitree_model/

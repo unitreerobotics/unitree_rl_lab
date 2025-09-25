@@ -26,8 +26,9 @@ class UnitreeArticulationCfg(ArticulationCfg):
 
     soft_joint_pos_limit_factor = 0.9
 
+# for fusion.ucsd.edu machine
+UNITREE_MODEL_DIR = "/home/mht/research/unitree_rl_lab/unitree_model"
 
-UNITREE_MODEL_DIR = MISSING
 
 UNITREE_GO2_CFG = UnitreeArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
@@ -507,6 +508,3 @@ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
         "right_wrist_yaw_joint",
     ],
 )
-
-
-"""Configuration for the Unitree G1 23DOF Humanoid robot."""
