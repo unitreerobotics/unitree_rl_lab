@@ -28,7 +28,7 @@ Currently supports Unitree **Go2**, **H1** and **G1-29dof** robots.
   - Clone or copy this repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
 
     ```bash
-    git clone https://github.com/unitreerobotics/unitree_rl_lab.git
+    git clone git@github.com:mht3/unitree_rl_lab.git
     ```
   - Use a python interpreter that has Isaac Lab installed, install the library in editable mode using:
 
