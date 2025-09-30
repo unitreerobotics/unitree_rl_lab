@@ -10,7 +10,7 @@
 
 This project provides a set of reinforcement learning environments for Unitree robots, built on top of [IsaacLab](https://github.com/isaac-sim/IsaacLab).
 
-Currently supports Unitree **Go2**, **H1** and **G1-29dof** robots.
+Currently supports Unitree **Go2**, **H1**, **G1-29dof**, and **G1-23dof** robots.
 
 <div align="center">
 
@@ -35,6 +35,11 @@ Currently supports Unitree **Go2**, **H1** and **G1-29dof** robots.
     ```bash
     conda activate env_isaaclab
     python -m pip install -e source/unitree_rl_lab
+    ```
+  - Install the custom version of RSL-RL on this repository.
+    
+    ```cd rsl_rl-3.0.1
+    pip install -e . && cd ..
     ```
 - Download unitree usd files
 
