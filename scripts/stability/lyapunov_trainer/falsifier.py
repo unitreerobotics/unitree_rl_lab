@@ -266,7 +266,7 @@ class G1CounterExampleBuffer():
         # Get device from obs tensor
         
         root_velocity = torch.zeros(1, 6, device=self.device)
-        # linear velocity remains untouched
+
         root_velocity[:, 3:6] = self.get_base_ang_vel(obs)
         # initial pose for unitree g1
         root_pose = torch.tensor([[0.0, 0.0, 0.8, 1.0, 0.0, 0.0, 0.0]], dtype=torch.float32, device=self.device)

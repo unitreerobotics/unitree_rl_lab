@@ -12,7 +12,7 @@ from lyapunov_trainer.utils import Plot3D
 from plot_lyapunov_model import plot_g1_balance_lyapunov_function
 import numpy as np
 
-from dataset import TrajectoryDataset
+from dataset import RolloutDataset
 import gymnasium as gym 
 
 class G1BalanceLyapunovTrainer(Trainer):
@@ -158,7 +158,7 @@ def main():
     args = get_args()
 
     load_path = os.path.join(cur_dir, 'datasets', 'g1_balance_8_newton_500_traj_7.5s.npz')
-    dataset = TrajectoryDataset(filename=load_path)
+    dataset = RolloutDataset(filename=load_path)
 
     history_len=5
     n_inputs = 390 # or 46 

@@ -1,4 +1,3 @@
-
 from utils import *
 from tensordict import TensorDict
 
@@ -93,14 +92,10 @@ class TrajectoryCollector():
 
     def get_trajectory(self, x):
         terminate = False
-
         trajectory = []
         while not terminate:
-            # get action for current state x
-            try:
-                sim_state = self.env.unwrapped.scene.get_state()
-            except Exception:
-                raise ValueError("IsaacLab environment missing scene.get_state.")
+            # get relative values of state
+            sim_state = self.env.unwrapped.scene.get_state()
             a = self.get_action(x)
             # get next state
             x_prime, reward, terminate, info = self.env.step(a)
@@ -123,7 +118,6 @@ class TrajectoryCollector():
 
     def save(self, trajectories, filename='trajectories.npz'):
         flattened_data = self.flatten_trajectories(trajectories)
-        # Ensure directory exists
         dirpath = os.path.dirname(filename)
         if dirpath and not os.path.exists(dirpath):
             os.makedirs(dirpath, exist_ok=True)
@@ -161,22 +155,38 @@ class TrajectoryCollector():
         }
         return data_dict
 
-class TrajectoryDataset(Dataset):
-    def __init__(self, filename):
-        # dataset of flattened tuples with dict-style observations
+class RolloutDataset(Dataset):
+    def __init__(self, filename, drop_last=True):
         loaded = self.load_dataset(filename)
+        self.drop_last = drop_last
         self.episode_lengths = torch.tensor(loaded['episode_lengths'], dtype=torch.int32)
-
         self.states_policy = torch.tensor(loaded['obs_policy'], dtype=torch.float32)
         self.states_critic = torch.tensor(loaded['obs_critic'], dtype=torch.float32)
         self.actions = torch.tensor(loaded['actions'], dtype=torch.float32)
         self.next_states_policy = torch.tensor(loaded['next_obs_policy'], dtype=torch.float32)
         self.next_states_critic = torch.tensor(loaded['next_obs_critic'], dtype=torch.float32)
         self.sim_state = loaded['sim_state']
+        if self.drop_last:
+            self._drop_last()
 
+    def _drop_last(self):
+        mask = torch.ones(len(self.states_policy), dtype=torch.bool)
+        end_step = 0
+        for episode_length in self.episode_lengths:
+            end_step += episode_length
+            mask[end_step- 1] = False  
+        
+        self.states_policy = self.states_policy[mask]
+        self.states_critic = self.states_critic[mask]
+        self.actions = self.actions[mask]
+        self.next_states_policy = self.next_states_policy[mask]
+        self.next_states_critic = self.next_states_critic[mask]
+        
+        self.sim_state = [self.sim_state[i] for i in range(len(self.sim_state)) if mask[i]]
+        
     def load_dataset(self, filename):
         '''
-        Loads named arrays from .npz and returns a dict
+        Loads arrays from .npz and returns a dict
         '''
         loaded = np.load(filename, allow_pickle=True)
         return {key: loaded[key] for key in loaded}
@@ -205,23 +215,28 @@ def collate_tensordict(batch):
 
     obs_td = TensorDict({'policy': obs_policy, 'critic': obs_critic}, batch_size=[obs_policy.shape[0]])
     next_td = TensorDict({'policy': next_policy, 'critic': next_critic}, batch_size=[next_policy.shape[0]])
-    # sim_states is a tuple of dicts; return as list to keep objects intact
     return obs_td, actions, next_td, list(sim_states)
-
-
 
 if __name__ == '__main__':
     cur_dir = os.path.dirname(os.path.abspath(__file__))
-    # save path
-    num_trajectories = 500
-    save_path = os.path.join(cur_dir, 'datasets', 'g1_balance_8_newton_{}_traj_10s.npz'.format(num_trajectories))
+    ep_length = 20
 
     env_id = 'Unitree-G1-23dof-Balance'
     policy_path = '/home/mht/research/unitree_rl_lab/logs/rsl_rl/unitree_g1_23dof_balance/2025-09-23_10-21-13/model_3300.pt'
     print(f"Loading environment: {env_id}")
     print(f"Loading policy from: {policy_path}")
     
-    env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path, episode_length_s=7.5)
+    env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path, episode_length_s=ep_length)
+
+    # save path
+    num_trajectories = 10
+    max_newton = env.unwrapped.event_manager.get_term_cfg("base_external_force").params["force_range"][1]
+    push_vel = env.unwrapped.event_manager.get_term_cfg("push_robot").params["velocity_range"]["x"][1]
+    load_name = 'g1_balance_{}_newton_{}_traj_{}s'.format(max_newton, num_trajectories, ep_length)
+    if push_vel > 0:
+        load_name += '_push_vel_{}'.format(push_vel)
+    save_path = os.path.join(cur_dir, 'datasets', '{}.npz'.format(load_name))
+
 
     print('##### Data Collection ######')
 
@@ -235,9 +250,8 @@ if __name__ == '__main__':
 
     print('##### Pytorch Dataset ######')
     load_path = save_path
-    loaded_data = TrajectoryDataset(load_path)
+    loaded_data = RolloutDataset(load_path)
     print('Loaded {} transitions.'.format(len(loaded_data)))
-
     dataloader = DataLoader(
         loaded_data,
         batch_size=32,
