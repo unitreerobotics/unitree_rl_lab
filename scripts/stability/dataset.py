@@ -219,22 +219,25 @@ def collate_tensordict(batch):
 
 if __name__ == '__main__':
     cur_dir = os.path.dirname(os.path.abspath(__file__))
-    ep_length = 20
 
+    ep_length = 15
     env_id = 'Unitree-G1-23dof-Balance'
-    policy_path = '/home/mht/research/unitree_rl_lab/logs/rsl_rl/unitree_g1_23dof_balance/2025-09-23_10-21-13/model_3300.pt'
+    # policy_path = '/home/mht/research/unitree_rl_lab/logs/rsl_rl/unitree_g1_23dof_balance/2025-09-23_10-21-13/model_3300.pt'
+    date = '2025-09-30_15-47-55'
+    policy_path = f'/home/mht/research/unitree_rl_lab/logs/rsl_rl/unitree_g1_23dof_balance/{date}/model_9999.pt'
     print(f"Loading environment: {env_id}")
     print(f"Loading policy from: {policy_path}")
     
     env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path, episode_length_s=ep_length)
 
     # save path
-    num_trajectories = 10
+    num_trajectories = 100
     max_newton = env.unwrapped.event_manager.get_term_cfg("base_external_force").params["force_range"][1]
     push_vel = env.unwrapped.event_manager.get_term_cfg("push_robot").params["velocity_range"]["x"][1]
     load_name = 'g1_balance_{}_newton_{}_traj_{}s'.format(max_newton, num_trajectories, ep_length)
     if push_vel > 0:
         load_name += '_push_vel_{}'.format(push_vel)
+    load_name += date
     save_path = os.path.join(cur_dir, 'datasets', '{}.npz'.format(load_name))
 
 

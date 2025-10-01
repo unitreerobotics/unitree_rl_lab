@@ -48,6 +48,38 @@ def force_torque_levels(
     target_level = min(env.common_step_counter // steps_per_level, max_level)
     return torch.tensor(target_level, device=env.device)
 
+def push_vel_levels(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    steps_per_level: int = 5000,
+    increment: float = 0.05,
+    max_speed: float = 1.0,
+) -> torch.Tensor:
+    max_speed = abs(max_speed)
+    level = int(env.common_step_counter // steps_per_level)
+    target = float(min(level * increment, max_speed))
+    return torch.tensor(target, device=env.device)
+
+def modify_push_velocity_range(
+    env: ManagerBasedRLEnv,
+    env_ids: Sequence[int],
+    old_value: dict,
+    steps_per_level: int = 5000,
+    increment: float = 0.05,
+    max_speed: float = 1.0,
+) -> dict | object:
+
+    max_speed = abs(max_speed)
+    level = int(env.common_step_counter // steps_per_level)
+    target = float(min(level * increment, max_speed))
+
+    current_x_max = old_value['x'][1]
+    if target > current_x_max:
+        return {
+            "x": (-target, target),
+            "y": (-target, target),
+        }
+    return modify_env_param.NO_CHANGE
 
 def lin_vel_cmd_levels(
     env: ManagerBasedRLEnv,

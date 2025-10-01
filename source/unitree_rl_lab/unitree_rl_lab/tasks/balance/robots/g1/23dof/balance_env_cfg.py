@@ -23,6 +23,8 @@ from unitree_rl_lab.tasks.balance import mdp
 
 # actions are torques and not position (deployment code can't handle this yet)
 USE_TORQUE = False
+# actions are positions with internal impedance control (external force compliant). Deployment code can't yet handle.
+USE_IMPEDANCE = False
 # use lower body + waist only in action space (13 actions vs 23)
 USE_LOWER_ONLY = False
 
@@ -33,9 +35,11 @@ WAIST = ["waist_yaw_joint"]
 LOWER_JOINTS = HIPS + KNEES + ANKLES + WAIST
 
 # Force and torque curriculum
-STEPS_PER_LEVEL = 5000
-MAX_LEVEL = 8
-
+STEPS_PER_LEVEL = 7500
+MAX_LEVEL = 3 # 8
+MAX_PUSH_VEL = 0.5
+STEPS_PER_LEVEL_PUSH = 12500 
+PUSH_TIME = 5
 if USE_LOWER_ONLY:
     # lower body + waist only
     ACTION_JOINTS = LOWER_JOINTS
@@ -156,15 +160,15 @@ class EventCfg:
     )
 
     # reset forces and torques (handled by curriculum)
-    # base_external_force = EventTerm(
-    #     func=mdp.apply_external_force_torque,
-    #         mode="reset",
-    #         params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-    #         "force_range": (-0.1, 0.1),
-    #         "torque_range": (-0.1, 0.1),
-    #     },
-    # )
+    base_external_force = EventTerm(
+        func=mdp.apply_external_force_torque,
+            mode="reset",
+            params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "force_range": (0.0, 0.0),
+            "torque_range": (0.0, 0.0),
+        },
+    )
 
     reset_base = EventTerm(
         func=mdp.reset_root_state_uniform,
@@ -193,22 +197,22 @@ class EventCfg:
 
     # interval
 
-    base_external_force = EventTerm(
-        func=mdp.apply_external_force_torque,
-            mode="interval",
-            interval_range_s=(1.0, 2.0),
-            params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-            "force_range": (-0.5, 0.5),
-            "torque_range": (-0.5, 0.5),
-        },
-    )
-    # push_robot = EventTerm(
-    #     func=mdp.push_by_setting_velocity,
-    #     mode="interval",
-    #     interval_range_s=(5.0, 5.0),
-    #     params={"velocity_range": {"x": (0, 0), "y": (0, 0)}},
+    # base_external_force = EventTerm(
+    #     func=mdp.apply_external_force_torque,
+    #         mode="interval",
+    #         interval_range_s=(1.0, 2.0),
+    #         params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+    #         "force_range": (-0.5, 0.5),
+    #         "torque_range": (-0.5, 0.5),
+    #     },
     # )
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(PUSH_TIME, PUSH_TIME),
+        params={"velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0)}},
+    )
 
 
 @configclass
@@ -240,9 +244,19 @@ class ActionsCfg:
 													 clip = effort_clip_dict
 													)
     else:
-        JointPositionAction = mdp.JointPositionActionCfg(
-            asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
-        )
+        # position control
+        if USE_IMPEDANCE:
+            # impedance controller
+            # TODO not yet implemented
+            raise NotImplementedError("Impedance control not yet implemented for Unitree G1.")
+            JointImp = mdp.JointPositionActionCfg(
+                asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
+            )
+        else:
+            # default position control
+            JointPositionAction = mdp.JointPositionActionCfg(
+                asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
+            )
 
 
 
@@ -311,8 +325,8 @@ class RewardsCfg:
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
     joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-5.0)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.1)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-2.0)
     energy = RewTerm(func=mdp.energy, weight=-2e-5)
 
     joint_deviation_arms = RewTerm(
@@ -331,7 +345,7 @@ class RewardsCfg:
     )
     joint_deviation_waists = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-1,
+        weight=-1.0,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -341,20 +355,20 @@ class RewardsCfg:
             )
         },
     )
-    # joint_deviation_legs = RewTerm(
-    #     func=mdp.joint_deviation_l1,
-    #     weight=-1.0,
-    #     params={"asset_cfg": SceneEntityCfg("robot", joint_names=[".*_hip_roll_joint", ".*_hip_yaw_joint"])},
-    # )
 
     # penalty on all hips
-    joint_deviation_legs = RewTerm(
+    joint_deviation_hips = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-1.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=HIPS+KNEES)},
+        weight=-2.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=HIPS)},
     )
-    # -- robot
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-5.0)
+    joint_deviation_knees = RewTerm(
+        func=mdp.joint_deviation_l1,
+        weight=-2.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=KNEES)},
+    )
+    # -- robot (most important for balance)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-10.0)
     base_height = RewTerm(func=mdp.base_height_l2, weight=-10, params={"target_height": 0.78})
 
     # -- feet
@@ -411,10 +425,28 @@ class CurriculumCfg:
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     lin_vel_cmd_levels = CurrTerm(mdp.lin_vel_cmd_levels)
 
+
+    # push velocity curriculum
+    push_levels = CurrTerm(mdp.push_vel_levels,
+                           params={"steps_per_level": STEPS_PER_LEVEL_PUSH,
+                                   "max_speed": MAX_PUSH_VEL})
+
+    push_vel_levels = CurrTerm(
+        func=mdp.modify_term_cfg,
+        params={
+            "address": "events.push_robot.params.velocity_range",
+            "modify_fn": mdp.modify_push_velocity_range,
+            "modify_params": {
+                "steps_per_level": STEPS_PER_LEVEL_PUSH,
+                "max_speed": MAX_PUSH_VEL
+            }
+        }
+    )
+
+    # forces and torques curriculum
     force_torque_levels = CurrTerm(func=mdp.force_torque_levels,
                                    params={"steps_per_level": STEPS_PER_LEVEL,
                                            "max_level": MAX_LEVEL})
-
     force_levels = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
@@ -426,11 +458,10 @@ class CurriculumCfg:
             }
         }
     )
-    
     torque_levels = CurrTerm(
         func=mdp.modify_term_cfg,
         params={
-            "address": "events.base_external_force.params.force_range",
+            "address": "events.base_external_force.params.torque_range",
             "modify_fn": mdp.modify_torque_range,
             "modify_params": {
                 "steps_per_level": STEPS_PER_LEVEL,
@@ -459,7 +490,7 @@ class RobotEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 4
-        self.episode_length_s = 20.0
+        self.episode_length_s = 15.0
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
@@ -490,6 +521,9 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
         
-        self.episode_length_s = 10.0
+        self.episode_length_s = 15.0
+
+        self.events.push_robot.params["velocity_range"] = {"x": (-MAX_PUSH_VEL, MAX_PUSH_VEL),
+                                                           "y": (-MAX_PUSH_VEL, MAX_PUSH_VEL)}
         self.events.base_external_force.params["force_range"] = (-MAX_LEVEL, MAX_LEVEL)
         self.events.base_external_force.params["torque_range"] = (-MAX_LEVEL, MAX_LEVEL)
