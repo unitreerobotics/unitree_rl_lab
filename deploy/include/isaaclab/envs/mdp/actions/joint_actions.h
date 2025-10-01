@@ -102,8 +102,19 @@ public:
     }
 };
 
+// TODO we need to add this?
+// class JointEffortAction : public JointAction
+// {
+// public:
+//     JointEffortAction(YAML::Node cfg, ManagerBasedRLEnv* env)
+//     :JointAction(cfg, env)
+//     {
+//     }
+// };
 
 REGISTER_ACTION(JointPositionAction);
 REGISTER_ACTION(JointVelocityAction);
+// REGISTER_ACTION(JointEffortAction);
 
 };
+

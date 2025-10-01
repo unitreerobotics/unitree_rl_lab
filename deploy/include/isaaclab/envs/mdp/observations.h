@@ -74,7 +74,9 @@ REGISTER_OBSERVATION(velocity_commands)
     obs[0] = std::clamp(joystick->ly(), cfg["lin_vel_x"][0].as<float>(), cfg["lin_vel_x"][1].as<float>());
     obs[1] = std::clamp(-joystick->lx(), cfg["lin_vel_y"][0].as<float>(), cfg["lin_vel_y"][1].as<float>());
     obs[2] = std::clamp(-joystick->rx(), cfg["ang_vel_z"][0].as<float>(), cfg["ang_vel_z"][1].as<float>());
-
+    // obs[0] = 0.0f; //forward vel
+    // obs[1] = 0.0f; //lateral vel
+    // obs[2] = 0.0f; //angular vel
     return obs;
 }
 

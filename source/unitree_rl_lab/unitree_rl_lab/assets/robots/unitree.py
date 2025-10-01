@@ -27,7 +27,7 @@ class UnitreeArticulationCfg(ArticulationCfg):
     soft_joint_pos_limit_factor = 0.9
 
 # for fusion.ucsd.edu machine
-UNITREE_MODEL_DIR = "/home/mht/research/unitree_rl_lab/unitree_model"
+UNITREE_MODEL_DIR = "/home/matt-taylor/research/unitree_rl_lab/unitree_model"
 
 
 UNITREE_GO2_CFG = UnitreeArticulationCfg(

@@ -33,4 +33,5 @@ FSM:
       ]
     ]
   Velocity:
-    policy_dir: ../../../logs/rsl_rl/unitree_g1_23dof_velocity
+    policy_dir: ../../../logs/rsl_rl/unitree_g1_23dof_balance
+    # policy_dir: ../../../logs/rsl_rl/unitree_g1_23dof_staggeredstance
