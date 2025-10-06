@@ -38,7 +38,8 @@ Currently supports Unitree **Go2**, **H1**, **G1-29dof**, and **G1-23dof** robot
     ```
   - Install the custom version of RSL-RL on this repository.
     
-    ```cd rsl_rl-3.0.1
+    ```bash
+    cd rsl_rl-3.0.1
     pip install -e . && cd ..
     ```
 - Download unitree usd files

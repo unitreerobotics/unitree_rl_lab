@@ -26,8 +26,8 @@ class UnitreeArticulationCfg(ArticulationCfg):
 
     soft_joint_pos_limit_factor = 0.9
 
-# for fusion.ucsd.edu machine
-UNITREE_MODEL_DIR = "/home/matt-taylor/research/unitree_rl_lab/unitree_model"
+# TODO change to where unitree_model/ is saved on your machine.
+UNITREE_MODEL_DIR = "/home/mht/research/unitree_rl_lab/unitree_model"
 
 
 UNITREE_GO2_CFG = UnitreeArticulationCfg(
@@ -384,6 +384,7 @@ UNITREE_G1_23DOF_CFG = UnitreeArticulationCfg(
     ],
 )
 
+
 UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
         usd_path=f"{UNITREE_MODEL_DIR}/G1/29dof/usd/g1_29dof_rev_1_0/g1_29dof_rev_1_0.usd",
@@ -459,9 +460,9 @@ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
             velocity_limit_sim=37,
             stiffness=40.0,
             damping={
-                ".*_shoulder_.*": 1.0,
-                ".*_elbow_.*": 1.0,
-                ".*_wrist_roll.*": 1.0,
+                ".*_shoulder_.*": 10.0,
+                ".*_elbow_.*": 10.0,
+                ".*_wrist_roll.*": 10.0,
                 ".*_ankle_.*": 2.0,
                 "waist_.*_joint": 5.0,
             },
@@ -472,7 +473,7 @@ UNITREE_G1_29DOF_CFG = UnitreeArticulationCfg(
             effort_limit_sim=5,
             velocity_limit_sim=22,
             stiffness=40.0,
-            damping=1.0,
+            damping=10.0,
             armature=0.01,
         ),
     },
