@@ -23,22 +23,22 @@ from unitree_rl_lab.tasks.balance import mdp
 
 # actions are torques and not position (deployment code can't handle this yet)
 USE_TORQUE = False
-# actions are positions with internal impedance control (external force compliant). Deployment code can't yet handle.
-USE_IMPEDANCE = False
 # use lower body + waist only in action space (13 actions vs 23)
 USE_LOWER_ONLY = False
+
 
 ANKLES = [".*ankle.*"]
 HIPS = [".*_hip_roll_.*", ".*_hip_pitch_.*", ".*_hip_yaw_.*"]
 KNEES = [".*_knee_.*"]
 WAIST = ["waist_yaw_joint"]
 LOWER_JOINTS = HIPS + KNEES + ANKLES + WAIST
+UPPER_JOINTS = [".*_shoulder_.*_joint", ".*_elbow_joint", ".*_wrist_.*"]
 
-# Force and torque curriculum
-STEPS_PER_LEVEL = 7500
+# Force, torque, and impulse curriculum
+STEPS_PER_LEVEL = 10000
 MAX_LEVEL = 3 # 8
-MAX_PUSH_VEL = 0.5
-STEPS_PER_LEVEL_PUSH = 12500 
+MAX_PUSH_VEL = 1.0
+STEPS_PER_LEVEL_PUSH = 15000
 PUSH_TIME = 5
 if USE_LOWER_ONLY:
     # lower body + waist only
@@ -83,7 +83,6 @@ COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
         "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.5),
     },
 )
-
 
 @configclass
 class RobotSceneCfg(InteractiveSceneCfg):
@@ -244,19 +243,10 @@ class ActionsCfg:
 													 clip = effort_clip_dict
 													)
     else:
-        # position control
-        if USE_IMPEDANCE:
-            # impedance controller
-            # TODO not yet implemented
-            raise NotImplementedError("Impedance control not yet implemented for Unitree G1.")
-            JointImp = mdp.JointPositionActionCfg(
-                asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
-            )
-        else:
-            # default position control
-            JointPositionAction = mdp.JointPositionActionCfg(
-                asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
-            )
+        # default position control
+        JointPositionAction = mdp.JointPositionActionCfg(
+            asset_name="robot", joint_names=ACTION_JOINTS, scale=0.25, use_default_offset=True
+        )
 
 
 
@@ -295,6 +285,7 @@ class ObservationsCfg:
         velocity_commands = ObsTerm(func=mdp.generated_commands, params={"command_name": "base_velocity"})
         joint_pos_rel = ObsTerm(func=mdp.joint_pos_rel)
         joint_vel_rel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05)
+        # joint_effort = ObsTerm(func=mdp.joint_effort)
         last_action = ObsTerm(func=mdp.last_action)
 
         def __post_init__(self):
@@ -325,7 +316,8 @@ class RewardsCfg:
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
     joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.1)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05) # -0.05
+    # torque_rate = RewTerm(func=mdp.joint_torque_rate_l2, weight=-2e-4)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-2.0)
     energy = RewTerm(func=mdp.energy, weight=-2e-5)
 
@@ -355,7 +347,6 @@ class RewardsCfg:
             )
         },
     )
-
     # penalty on all hips
     joint_deviation_hips = RewTerm(
         func=mdp.joint_deviation_l1,
@@ -388,6 +379,7 @@ class RewardsCfg:
     #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_pitch.*"),
     #     },
     # )
+    
     feet_clearance = RewTerm(
         func=mdp.foot_clearance_reward,
         weight=1.0,

@@ -231,13 +231,14 @@ if __name__ == '__main__':
     env, policy = load_env_and_policy(env_id=env_id, policy_path=policy_path, episode_length_s=ep_length)
 
     # save path
-    num_trajectories = 100
+    num_trajectories = 10
     max_newton = env.unwrapped.event_manager.get_term_cfg("base_external_force").params["force_range"][1]
     push_vel = env.unwrapped.event_manager.get_term_cfg("push_robot").params["velocity_range"]["x"][1]
+
     load_name = 'g1_balance_{}_newton_{}_traj_{}s'.format(max_newton, num_trajectories, ep_length)
     if push_vel > 0:
         load_name += '_push_vel_{}'.format(push_vel)
-    load_name += date
+    load_name += '_' + date
     save_path = os.path.join(cur_dir, 'datasets', '{}.npz'.format(load_name))
 
 

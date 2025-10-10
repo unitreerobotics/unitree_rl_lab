@@ -10,11 +10,11 @@ import torch.nn as nn
 import torch.optim as optim
 from itertools import chain
 
+import isaaclab.utils.math as math_utils
 from rsl_rl.modules import ActorCritic, CustomActorCritic
 from rsl_rl.modules.rnd import RandomNetworkDistillation
 from rsl_rl.storage import CustomRolloutStorage
 from rsl_rl.utils import string_to_callable
-
 
 class CustomPPO:
     """Proximal Policy Optimization algorithm (https://arxiv.org/abs/1707.06347).
@@ -40,8 +40,8 @@ class CustomPPO:
         desired_kl=0.01,
         device="cpu",
         normalize_advantage_per_mini_batch=False,
-        beta=0.9,
-        omega = 0.05,
+        beta=0.1,
+        omega = 1e-3,
         # RND parameters
         rnd_cfg: dict | None = None,
         # Symmetry parameters
@@ -119,6 +119,11 @@ class CustomPPO:
         self.normalize_advantage_per_mini_batch = normalize_advantage_per_mini_batch
         self.beta = beta
         self.omega = omega
+        self.prev_state_projections = None
+        self._reset_prev_proj_next = None
+        self.env = None
+        # Pre-compute projection indices to avoid creating tensors repeatedly
+        self._projection_indices = None
         
     def init_storage(self, training_type, num_envs, num_transitions_per_env, obs, actions_shape):
         # create rollout storage
@@ -129,7 +134,42 @@ class CustomPPO:
             obs,
             actions_shape,
             self.device,
+            self.beta,
+            self.omega,
         )
+        self._reset_prev_proj_next = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        # get projection indices once and put on gpu
+        self._init_projection_indices()
+        # initialize previous state projections
+
+        if self.env is None:
+            raise ValueError("Environment is not set but Required for state projection. Please set the environment using the env attribute.")
+
+        # initialize default root pos and rpy
+        self.default_root_pos = self.env.unwrapped.scene.get_state()["articulation"]["robot"]["root_pose"]
+        default_rpy_tuple = math_utils.euler_xyz_from_quat(self.default_root_pos[:, 3:7])
+        self.default_rpy = torch.stack(default_rpy_tuple, dim=1)
+        self.prev_state_projections = self._compute_state_projection(obs)
+    
+    def _init_projection_indices(self):
+        history_length = 5
+        # indices for state projection
+
+        # joint indices of interest (23 in total). These are Left hip pitch, roll, yaw, and knee joint, then right
+        joint_indices = torch.tensor([0, 1, 2, 3, 6, 7, 8, 9], dtype=torch.int64)
+        position_offset =  history_length*3*4 + 23*(history_length - 1)
+        velocity_offset = position_offset + 23*history_length
+        # linear and angular velocity
+        velocity_indices = list(range((history_length-1)*3, history_length*3))
+        angular_velocity_indices = list(range((history_length-1)*3 + history_length*3, (history_length-1)*3 + (history_length+1)*3))
+
+        base_indices = torch.tensor(velocity_indices + angular_velocity_indices, dtype=torch.int64)
+
+        # left hip pitch, roll, yaw, knee_joint, right hip + knee joint
+        lower_joint_pos_indices = joint_indices + position_offset  
+        lower_joint_vel_indices = joint_indices + velocity_offset
+
+        self._projection_indices = torch.cat((base_indices, lower_joint_pos_indices, lower_joint_vel_indices))
 
     def act(self, obs):
         if self.policy.is_recurrent:
@@ -168,8 +208,15 @@ class CustomPPO:
                 self.transition.values * extras["time_outs"].unsqueeze(1).to(self.device), 1
             )
 
+        # NOTE adds state projection to transition
+        self._fill_state_projection_transition(obs)
+
         # record the transition
         self.storage.add_transitions(self.transition)
+
+        # NOTE old dones signify which envs must reset prev_state_projections at next trajectory
+        self._reset_prev_proj_next = dones.squeeze(-1).to(torch.bool)
+
         self.transition.clear()
         self.policy.reset(dones)
 
@@ -184,6 +231,9 @@ class CustomPPO:
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_entropy = 0
+        # NOTE projection rate tracking for wandb
+        mean_projection_rate = 0
+        mean_projection_penalty = 0
         # -- RND loss
         if self.rnd:
             mean_rnd_loss = 0
@@ -213,6 +263,8 @@ class CustomPPO:
             old_sigma_batch,
             hid_states_batch,
             masks_batch,
+            state_projection_penalty_batch,
+            state_projection_rates_batch,
         ) in generator:
 
             # number of augmentations per sample
@@ -298,8 +350,6 @@ class CustomPPO:
                     for param_group in self.optimizer.param_groups:
                         param_group["lr"] = self.learning_rate
 
-
-            # TODO: add in step-wise projection regularization terms
 
             # Surrogate loss
             ratio = torch.exp(actions_log_prob_batch - torch.squeeze(old_actions_log_prob_batch))
@@ -395,6 +445,8 @@ class CustomPPO:
             mean_value_loss += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
             mean_entropy += entropy_batch.mean().item()
+            mean_projection_rate += state_projection_rates_batch.mean().item()
+            mean_projection_penalty += state_projection_penalty_batch.mean().item()
             # -- RND loss
             if mean_rnd_loss is not None:
                 mean_rnd_loss += rnd_loss.item()
@@ -407,6 +459,8 @@ class CustomPPO:
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
         mean_entropy /= num_updates
+        mean_projection_rate /= num_updates
+        mean_projection_penalty /= num_updates
         # -- For RND
         if mean_rnd_loss is not None:
             mean_rnd_loss /= num_updates
@@ -421,6 +475,8 @@ class CustomPPO:
             "value_function": mean_value_loss,
             "surrogate": mean_surrogate_loss,
             "entropy": mean_entropy,
+            "state_projection_rate": mean_projection_rate,
+            "state_projection_penalty": mean_projection_penalty,
         }
         if self.rnd:
             loss_dict["rnd"] = mean_rnd_loss
@@ -432,6 +488,40 @@ class CustomPPO:
     """
     Helper functions
     """
+
+    @torch.no_grad()
+    def _compute_state_projection(self, obs_td) -> torch.Tensor:
+        """Returns a tensor of shape [num_envs, num_projection_dims].
+            num_projection_dims = 25"""
+        obs_tensor = obs_td["critic"]
+        proj = obs_tensor[:, self._projection_indices]
+
+        # get robot position from articulation data
+        robot_articulation = self.env.unwrapped.scene.get_state()["articulation"]["robot"]
+        # root_pos = robot_articulation["root_pose"][:, :3]  # [x, y, z]
+        root_quat= robot_articulation["root_pose"][:, 3:7]  # [qw, qx, qy, qz]
+
+        # root_lin_pos = root_pos[:, 0:3] - self.default_root_pos[:, 0:3]
+        root_rpy_tuple = math_utils.euler_xyz_from_quat(root_quat)
+        root_rpy = torch.stack(root_rpy_tuple, dim=1) - self.default_rpy
+
+        proj = torch.cat([root_rpy, proj], dim=1)
+        return proj.detach()
+
+    def _fill_state_projection_transition(self, obs):
+        """Fill transition with state projection. Used for advantage shaping."""
+        with torch.no_grad():
+            current_projections = self._compute_state_projection(obs)
+
+            if torch.any(self._reset_prev_proj_next):
+                # reset logic for new trajectories. Sets prev=current so that current-prev=0.
+                self.prev_state_projections[self._reset_prev_proj_next] = current_projections[self._reset_prev_proj_next]
+            
+            # L2 projection rate
+            projection_rates = (current_projections - self.prev_state_projections).pow(2).mean(dim=-1, keepdim=True).sqrt()
+            self.transition.state_projection_rates = projection_rates
+            
+            self.prev_state_projections.copy_(current_projections)
 
     def broadcast_parameters(self):
         """Broadcast model parameters to all GPUs."""

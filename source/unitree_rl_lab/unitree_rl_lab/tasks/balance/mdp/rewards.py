@@ -7,6 +7,7 @@ import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
+from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -15,6 +16,26 @@ if TYPE_CHECKING:
 Joint penalties.
 """
 
+def joint_torque_rate_l2(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Penalize joint torques rates applied on the articulation using L2 squared kernel.
+
+    NOTE: Only the joints configured in :attr:`asset_cfg.joint_ids` will have their joint torques contribute to the term.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    qfrc = asset.data.applied_torque[:, asset_cfg.joint_ids]
+
+    if not hasattr(asset.data, "prev_qfrc"):
+        asset.data.prev_qfrc = torch.zeros_like(qfrc)
+
+    # reset prev_qfrc for envs that just reset
+    first_step_envs = env.episode_length_buf <= 1
+    if torch.any(first_step_envs):
+        asset.data.prev_qfrc[first_step_envs] = qfrc[first_step_envs].clone()
+    
+    torque_rate_penalty = torch.sum(torch.square(qfrc - asset.data.prev_qfrc), dim=1)
+    asset.data.prev_qfrc = qfrc.clone()
+    return torque_rate_penalty
 
 def energy(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Penalize the energy used by the robot's joints."""
@@ -34,12 +55,23 @@ def stand_still(
     cmd_norm = torch.norm(env.command_manager.get_command(command_name), dim=1)
     return reward * (cmd_norm < 0.1)
 
+# def base_xy_compliance(
+#     env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), K:float = 150.0, D:float = 50.) -> torch.Tensor:
+#     asset: Articulation = env.scene[asset_cfg.name]
+
+#     v_cmd = env.command_manager.get_command("base_velocity") 
+#     v_base = asset.data.root_lin_vel_w[:, :2]
+#     x_base = asset.data.root_pos_w[:, :2]
+#     f_ext = asset.data.net_forces[:, :2]
+#     x_target = x_base + f_ext / K
+#     v_target = v_cmd + f_ext / D
+#     pos_err = torch.sum((x_base - x_target) ** 2, dim=-1)
+#     vel_err = torch.sum((v_base - v_target) ** 2, dim=-1)
+#     return pos_err + vel_err
 
 """
 Robot.
 """
-
-
 def orientation_l2(
     env: ManagerBasedRLEnv, desired_gravity: list[float], asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:

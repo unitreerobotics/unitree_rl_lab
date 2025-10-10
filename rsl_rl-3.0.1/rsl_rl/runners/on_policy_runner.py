@@ -424,6 +424,10 @@ class OnPolicyRunner:
         alg_class = eval(self.alg_cfg.pop("class_name"))
         alg: PPO | CustomPPO = alg_class(actor_critic, device=self.device, **self.alg_cfg, multi_gpu_cfg=self.multi_gpu_cfg)
 
+        if isinstance(alg, CustomPPO):
+            # environment variable to use to access full robot state.
+            alg.env = self.env
+
         # initialize the storage
         alg.init_storage(
             "rl",

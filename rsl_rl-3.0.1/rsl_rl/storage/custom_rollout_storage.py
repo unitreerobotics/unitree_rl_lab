@@ -24,6 +24,8 @@ class CustomRolloutStorage:
             self.action_mean = None
             self.action_sigma = None
             self.hidden_states = None
+            # NOTE current and previous state projection tensors
+            self.state_projection_rates = None
 
         def clear(self):
             self.__init__()
@@ -36,6 +38,8 @@ class CustomRolloutStorage:
         obs,
         actions_shape,
         device="cpu",
+        beta=0.1,
+        omega=1e-3,
     ):
         # store inputs
         self.training_type = training_type
@@ -66,6 +70,8 @@ class CustomRolloutStorage:
             self.sigma = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
             self.returns = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
             self.advantages = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
+            # NOTE projections of state to regularize advantage with
+            self.state_projection_rates = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
 
         # For RNN networks
         self.saved_hidden_states_a = None
@@ -73,6 +79,10 @@ class CustomRolloutStorage:
 
         # counter for the number of transitions stored
         self.step = 0
+
+        # offset for state projection penalty
+        self.omega = omega
+        self.beta = beta
 
     def add_transitions(self, transition: Transition):
         # check if the transition is valid
@@ -95,6 +105,8 @@ class CustomRolloutStorage:
             self.actions_log_prob[self.step].copy_(transition.actions_log_prob.view(-1, 1))
             self.mu[self.step].copy_(transition.action_mean)
             self.sigma[self.step].copy_(transition.action_sigma)
+            # NOTE calculate projection rate using transition
+            self.state_projection_rates[self.step].copy_(transition.state_projection_rates)
 
         # For RNN networks
         self._save_hidden_states(transition.hidden_states)
@@ -143,6 +155,22 @@ class CustomRolloutStorage:
 
         # Compute the advantages
         self.advantages = self.returns - self.values
+        # compute state projection penalty
+        # NOTE penalty should not bias if smaller than omega
+        self.state_projection_penalty = -self.state_projection_rates
+        zeros = torch.zeros_like(self.state_projection_penalty, device=self.device)
+        self.state_projection_penalty = torch.min(
+            zeros,
+            self.state_projection_penalty + self.omega,
+        )
+
+        # NOTE min-max normalization over advantage and state projection penalty so that range is compressed to [0, 1]
+        self.advantages = (self.advantages - torch.min(self.advantages)) / (torch.max(self.advantages) - torch.min(self.advantages) + 1e-8)
+        self.state_projection_penalty = (self.state_projection_penalty - torch.min(self.state_projection_penalty)) / (torch.max(self.state_projection_penalty) - torch.min(self.state_projection_penalty) + 1e-8)
+
+        # NOTE advantage shaping core code (convex sum)
+        self.advantages = (1.0 - self.beta) * self.advantages + self.beta * self.state_projection_penalty
+
         # Normalize the advantages if flag is set
         # This is to prevent double normalization (i.e. if per minibatch normalization is used)
         if normalize_advantage:
@@ -175,6 +203,8 @@ class CustomRolloutStorage:
         advantages = self.advantages.flatten(0, 1)
         old_mu = self.mu.flatten(0, 1)
         old_sigma = self.sigma.flatten(0, 1)
+        state_projection_penalty = self.state_projection_penalty.flatten(0, 1)
+        state_projection_rates = self.state_projection_rates.flatten(0, 1)
 
         for epoch in range(num_epochs):
             for i in range(num_mini_batches):
@@ -195,12 +225,14 @@ class CustomRolloutStorage:
                 advantages_batch = advantages[batch_idx]
                 old_mu_batch = old_mu[batch_idx]
                 old_sigma_batch = old_sigma[batch_idx]
+                state_projection_penalty_batch = state_projection_penalty[batch_idx]
+                state_projection_rates_batch = state_projection_rates[batch_idx]
 
                 # yield the mini-batch
                 yield obs_batch, actions_batch, target_values_batch, advantages_batch, returns_batch, old_actions_log_prob_batch, old_mu_batch, old_sigma_batch, (
                     None,
                     None,
-                ), None
+                ), None, state_projection_penalty_batch, state_projection_rates_batch
 
     # for reinfrocement learning with recurrent networks
     def recurrent_mini_batch_generator(self, num_mini_batches, num_epochs=8):
