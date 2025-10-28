@@ -8,6 +8,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 # regularize advantage using state projections
 USE_CUSTOM = True
+BETA = 0.15
+OMEGA = 1e-3
 
 @configclass
 class RslRlPpoCustomActorCriticCfg(RslRlPpoActorCriticCfg):
@@ -77,8 +79,8 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
             lam=0.95,
             desired_kl=0.01,
             max_grad_norm=1.0,
-            beta=0.1,
-            omega=1e-3,
+            beta=BETA,
+            omega=OMEGA,
         )
 
 

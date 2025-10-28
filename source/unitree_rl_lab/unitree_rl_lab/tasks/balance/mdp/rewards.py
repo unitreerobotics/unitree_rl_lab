@@ -7,7 +7,6 @@ import isaaclab.utils.math as math_utils
 from isaaclab.assets import Articulation, RigidObject
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import ContactSensor
-from collections.abc import Sequence
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -83,6 +82,19 @@ def orientation_l2(
     cos_dist = torch.sum(asset.data.projected_gravity_b * desired_gravity, dim=-1)  # cosine distance
     normalized = 0.5 * cos_dist + 0.5  # map from [-1, 1] to [0, 1]
     return torch.square(normalized)
+
+def orientation_exp(
+    env: ManagerBasedRLEnv, std: float = 0.15, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
+) -> torch.Tensor:
+    """Reward the agent for maintaining flat orientation (penalizing roll and pitch only) using exponential kernel.
+    f(x) = e^{(-xy_error)/(std^2)}
+    """
+    asset: RigidObject = env.scene[asset_cfg.name]
+    
+    # Only consider xy components (roll and pitch), ignore z (yaw)
+    xy_gravity = asset.data.projected_gravity_b[:, :2]
+    xy_error = torch.sum(torch.square(xy_gravity), dim=-1)
+    return torch.exp(-xy_error / std**2)
 
 
 def upward(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:

@@ -35,11 +35,10 @@ LOWER_JOINTS = HIPS + KNEES + ANKLES + WAIST
 UPPER_JOINTS = [".*_shoulder_.*_joint", ".*_elbow_joint", ".*_wrist_.*"]
 
 # Force, torque, and impulse curriculum
-STEPS_PER_LEVEL = 10000
-MAX_LEVEL = 3 # 8
-MAX_PUSH_VEL = 1.0
-STEPS_PER_LEVEL_PUSH = 15000
-PUSH_TIME = 5
+MAX_LEVEL = 3
+MAX_PUSH_VEL = 1.5
+PUSH_MIN_TIME = 1.0
+PUSH_MAX_TIME = 4.0
 if USE_LOWER_ONLY:
     # lower body + waist only
     ACTION_JOINTS = LOWER_JOINTS
@@ -164,8 +163,8 @@ class EventCfg:
             mode="reset",
             params={
             "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-            "force_range": (0.0, 0.0),
-            "torque_range": (0.0, 0.0),
+            "force_range": (-0.5, 0.5),
+            "torque_range": (-0.5, 0.5),
         },
     )
 
@@ -195,22 +194,11 @@ class EventCfg:
     )
 
     # interval
-
-    # base_external_force = EventTerm(
-    #     func=mdp.apply_external_force_torque,
-    #         mode="interval",
-    #         interval_range_s=(1.0, 2.0),
-    #         params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
-    #         "force_range": (-0.5, 0.5),
-    #         "torque_range": (-0.5, 0.5),
-    #     },
-    # )
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
-        interval_range_s=(PUSH_TIME, PUSH_TIME),
-        params={"velocity_range": {"x": (0.0, 0.0), "y": (0.0, 0.0)}},
+        interval_range_s=(PUSH_MIN_TIME, PUSH_MAX_TIME),
+        params={"velocity_range": {"x": (-0.25, 0.25), "y": (-0.25, 0.25)}},
     )
 
 
@@ -298,15 +286,18 @@ class ObservationsCfg:
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
+    # task weights
+    orientation_exp = RewTerm(func=mdp.orientation_exp, weight=0.25, params={"std": 0.15})
+    base_height = RewTerm(func=mdp.base_height_l2, weight=-10, params={"target_height": 0.78})
 
-    # -- task
+    # controller inputs (small weight since this is a balance task)
     track_lin_vel_xy = RewTerm(
         func=mdp.track_lin_vel_xy_yaw_frame_exp,
-        weight=1.0,
+        weight=0.1,
         params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
     )
     track_ang_vel_z = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=0.1, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
 
     alive = RewTerm(func=mdp.is_alive, weight=0.15)
@@ -316,14 +307,14 @@ class RewardsCfg:
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     joint_vel = RewTerm(func=mdp.joint_vel_l2, weight=-0.001)
     joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05) # -0.05
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.05)
     # torque_rate = RewTerm(func=mdp.joint_torque_rate_l2, weight=-2e-4)
     dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-2.0)
     energy = RewTerm(func=mdp.energy, weight=-2e-5)
 
     joint_deviation_arms = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-0.1,
+        weight=-0.01,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -337,7 +328,7 @@ class RewardsCfg:
     )
     joint_deviation_waists = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-1.0,
+        weight=-2.0,
         params={
             "asset_cfg": SceneEntityCfg(
                 "robot",
@@ -350,7 +341,7 @@ class RewardsCfg:
     # penalty on all hips
     joint_deviation_hips = RewTerm(
         func=mdp.joint_deviation_l1,
-        weight=-2.0,
+        weight=-0.1,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=HIPS)},
     )
     joint_deviation_knees = RewTerm(
@@ -358,9 +349,6 @@ class RewardsCfg:
         weight=-2.0,
         params={"asset_cfg": SceneEntityCfg("robot", joint_names=KNEES)},
     )
-    # -- robot (most important for balance)
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-10.0)
-    base_height = RewTerm(func=mdp.base_height_l2, weight=-10, params={"target_height": 0.78})
 
     # -- feet
     feet_slide = RewTerm(
@@ -371,14 +359,6 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_roll.*"),
         },
     )
-    # feet_slide = RewTerm(
-    #     func=mdp.feet_slide,
-    #     weight=-0.2,
-    #     params={
-    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_pitch.*"),
-    #         "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*ankle_pitch.*"),
-    #     },
-    # )
     
     feet_clearance = RewTerm(
         func=mdp.foot_clearance_reward,
@@ -417,50 +397,15 @@ class CurriculumCfg:
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     lin_vel_cmd_levels = CurrTerm(mdp.lin_vel_cmd_levels)
 
+    push_vel_event_levels = CurrTerm(mdp.push_vel_event_levels,
+                                     params={"increment": 0.25,
+                                             "max_speed": MAX_PUSH_VEL,
+                                             "performance_thresh" : 0.965})
 
-    # push velocity curriculum
-    push_levels = CurrTerm(mdp.push_vel_levels,
-                           params={"steps_per_level": STEPS_PER_LEVEL_PUSH,
-                                   "max_speed": MAX_PUSH_VEL})
-
-    push_vel_levels = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "events.push_robot.params.velocity_range",
-            "modify_fn": mdp.modify_push_velocity_range,
-            "modify_params": {
-                "steps_per_level": STEPS_PER_LEVEL_PUSH,
-                "max_speed": MAX_PUSH_VEL
-            }
-        }
-    )
-
-    # forces and torques curriculum
     force_torque_levels = CurrTerm(func=mdp.force_torque_levels,
-                                   params={"steps_per_level": STEPS_PER_LEVEL,
-                                           "max_level": MAX_LEVEL})
-    force_levels = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "events.base_external_force.params.force_range",
-            "modify_fn": mdp.modify_force_range,
-            "modify_params": {
-                "steps_per_level": STEPS_PER_LEVEL,
-                "max_level": MAX_LEVEL
-            }
-        }
-    )
-    torque_levels = CurrTerm(
-        func=mdp.modify_term_cfg,
-        params={
-            "address": "events.base_external_force.params.torque_range",
-            "modify_fn": mdp.modify_torque_range,
-            "modify_params": {
-                "steps_per_level": STEPS_PER_LEVEL,
-                "max_level": MAX_LEVEL
-            }
-        }
-    )
+                                   params={"increment": 0.5,
+                                           "max_level": MAX_LEVEL,
+                                           "performance_thresh" : 0.965})
 
 @configclass
 class RobotEnvCfg(ManagerBasedRLEnvCfg):
@@ -482,7 +427,7 @@ class RobotEnvCfg(ManagerBasedRLEnvCfg):
         """Post initialization."""
         # general settings
         self.decimation = 4
-        self.episode_length_s = 15.0
+        self.episode_length_s = 12.0
         # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
@@ -503,6 +448,16 @@ class RobotEnvCfg(ManagerBasedRLEnvCfg):
             if self.scene.terrain.terrain_generator is not None:
                 self.scene.terrain.terrain_generator.curriculum = False
 
+        # set force levels to max range if no curriculum is present
+        if getattr(self.curriculum, "force_torque_levels", None) is None:
+            self.events.base_external_force.params["force_range"] = (-MAX_LEVEL, MAX_LEVEL)
+            self.events.base_external_force.params["torque_range"] = (-MAX_LEVEL, MAX_LEVEL)
+
+        # set push vel levels to max range if no curriculum is present
+        if getattr(self.curriculum, "push_vel_event_levels", None) is None:
+            self.events.push_robot.params["velocity_range"] = {"x": (-MAX_PUSH_VEL, MAX_PUSH_VEL),
+                                                               "y": (-MAX_PUSH_VEL, MAX_PUSH_VEL)}
+
 
 @configclass
 class RobotPlayEnvCfg(RobotEnvCfg):
@@ -513,7 +468,7 @@ class RobotPlayEnvCfg(RobotEnvCfg):
         self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
         
-        self.episode_length_s = 15.0
+        self.episode_length_s = 12.0
 
         self.events.push_robot.params["velocity_range"] = {"x": (-MAX_PUSH_VEL, MAX_PUSH_VEL),
                                                            "y": (-MAX_PUSH_VEL, MAX_PUSH_VEL)}
