@@ -401,6 +401,7 @@ class RobotPlayEnvCfg(RobotEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.num_envs = 32
-        self.scene.terrain.terrain_generator.num_rows = 2
-        self.scene.terrain.terrain_generator.num_cols = 10
+        if self.scene.terrain.terrain_generator is not None:
+            self.scene.terrain.terrain_generator.num_rows = 2
+            self.scene.terrain.terrain_generator.num_cols = 10
         self.commands.base_velocity.ranges = self.commands.base_velocity.limit_ranges
