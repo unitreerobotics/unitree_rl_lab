@@ -118,14 +118,41 @@ def feet_height_body(
 
 
 def foot_clearance_reward(
-    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, target_height: float, std: float, tanh_mult: float
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg,
+    target_height: float,
+    std: float,
+    tanh_mult: float,
+    command_name: str = "base_velocity",
 ) -> torch.Tensor:
-    """Reward the swinging feet for clearing a specified height off the ground"""
+    """Reward the swinging feet for clearing a specified height off the ground.
+    
+    Encourages the robot to lift feet to at least target height during locomotion to traverse obstacles.
+    Only penalizes feet that are below target height (one-sided penalty) - lifting higher is acceptable
+    for complex terrain. Uses smooth weighting based on both command magnitude and actual body velocity
+    to prevent exploitation by standing still with large commands.
+    """
     asset: RigidObject = env.scene[asset_cfg.name]
-    foot_z_target_error = torch.square(asset.data.body_pos_w[:, asset_cfg.body_ids, 2] - target_height)
+    # One-sided penalty: only penalize when foot is below target height
+    foot_height_deficit = torch.clamp(target_height - asset.data.body_pos_w[:, asset_cfg.body_ids, 2], min=0.0)
+    foot_z_target_error = torch.square(foot_height_deficit)
     foot_velocity_tanh = torch.tanh(tanh_mult * torch.norm(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2], dim=2))
     reward = foot_z_target_error * foot_velocity_tanh
-    return torch.exp(-torch.sum(reward, dim=1) / std)
+    reward = torch.exp(-torch.sum(reward, dim=1) / std)
+    
+    # Smooth weighting based on command magnitude
+    cmd_norm = torch.norm(env.command_manager.get_command(command_name), dim=1)
+    cmd_weight = torch.tanh(10.0 * cmd_norm)  # Saturates
+    
+    # Smooth weighting based on actual body velocity (prevents standing still exploitation)
+    body_vel = torch.norm(asset.data.root_lin_vel_b[:, :2], dim=1)
+    vel_weight = torch.tanh(10.0 * body_vel)  # Saturates
+    
+    # Combine both weights: need both command AND movement
+    combined_weight = cmd_weight * vel_weight
+    reward = reward * combined_weight
+    
+    return reward
 
 
 def feet_too_near(
