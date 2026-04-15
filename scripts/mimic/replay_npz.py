@@ -3,7 +3,7 @@
 .. code-block:: bash
 
     # Usage
-    python replay_npz.py -f path_to_motion.npz
+    python replay_npz.py -f path_to_motion.npz --robot_model g1_29dof
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -17,6 +17,13 @@ from isaaclab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Replay converted motions.")
 parser.add_argument("--file", "-f", type=str, required=True)
+parser.add_argument(
+    "--robot_model",
+    type=str,
+    default="g1_29dof",
+    choices=("g1_23dof", "g1_29dof", "g1_29dof_lock_waist"),
+    help="The robot model used to replay the motion.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -36,8 +43,17 @@ from isaaclab.sim import SimulationContext
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_23DOF_MIMIC_CFG
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_CFG
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG
 from unitree_rl_lab.tasks.mimic.mdp import MotionLoader
+
+ROBOT_CFG_MAP = {
+    "g1_23dof": UNITREE_G1_23DOF_MIMIC_CFG,
+    "g1_29dof": UNITREE_G1_29DOF_MIMIC_CFG,
+    "g1_29dof_lock_waist": UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_CFG,
+}
+ROBOT_CFG = ROBOT_CFG_MAP[args_cli.robot_model]
 
 ##
 # Pre-defined configs
@@ -73,6 +89,25 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
         torch.tensor([0], dtype=torch.long, device=sim.device),
         sim.device,
     )
+
+    robot_joints = robot.data.joint_pos.shape[1]
+    motion_joints = motion.joint_pos.shape[1]
+    if motion_joints != robot_joints:
+        if motion_joints == 29 and robot_joints == 27:
+            motion.joint_pos = torch.cat([motion.joint_pos[:, :13], motion.joint_pos[:, 15:]], dim=1)
+            motion.joint_vel = torch.cat([motion.joint_vel[:, :13], motion.joint_vel[:, 15:]], dim=1)
+        elif motion_joints == 29 and robot_joints == 23:
+            motion.joint_pos = torch.cat(
+                [motion.joint_pos[:, :13], motion.joint_pos[:, 15:20], motion.joint_pos[:, 22:27]], dim=1
+            )
+            motion.joint_vel = torch.cat(
+                [motion.joint_vel[:, :13], motion.joint_vel[:, 15:20], motion.joint_vel[:, 22:27]], dim=1
+            )
+        else:
+            raise ValueError(
+                f"Motion joint dim ({motion_joints}) does not match robot joint dim ({robot_joints})."
+            )
+
     time_steps = torch.zeros(scene.num_envs, dtype=torch.long, device=sim.device)
 
     # Simulation loop

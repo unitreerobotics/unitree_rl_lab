@@ -38,7 +38,7 @@ int main(int argc, char** argv)
 
     init_fsm_state();
 
-    FSMState::lowcmd->msg_.mode_machine() = 5; // 29dof
+    FSMState::lowcmd->msg_.mode_machine() = 4; // 23dof
     if(!FSMState::lowcmd->check_mode_machine(FSMState::lowstate)) {
         spdlog::critical("Unmatched robot type.");
         exit(-1);
@@ -50,6 +50,10 @@ int main(int argc, char** argv)
 
     std::cout << "Press [L2 + Up] to enter FixStand mode.\n";
     std::cout << "And then press [R1 + X] to start controlling the robot.\n";
+    std::cout << "Passive: L2 + B\n";
+    std::cout << "Velocity: R1 + X\n";
+    std::cout << "Mimic_Dance_102: L2(2s) + down\n";
+    std::cout << "Mimic_Gangnam_Style: L2(2s) + left\n";
 
     while (true)
     {
