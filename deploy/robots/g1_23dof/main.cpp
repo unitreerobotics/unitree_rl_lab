@@ -2,10 +2,11 @@
 #include "FSM/State_Passive.h"
 #include "FSM/State_FixStand.h"
 #include "FSM/State_RLBase.h"
+#include "State_Mimic.h"
 
 std::unique_ptr<LowCmd_t> FSMState::lowcmd = nullptr;
 std::shared_ptr<LowState_t> FSMState::lowstate = nullptr;
-std::shared_ptr<Keyboard> FSMState::keyboard = nullptr;
+std::shared_ptr<Keyboard> FSMState::keyboard = std::make_shared<Keyboard>();
 
 void init_fsm_state()
 {
@@ -49,6 +50,11 @@ int main(int argc, char** argv)
 
     std::cout << "Press [L2 + Up] to enter FixStand mode.\n";
     std::cout << "And then press [R1 + X] to start controlling the robot.\n";
+    std::cout << "Passive(Damping): L2 + B\n";
+    std::cout << "Velocity(Walking): R1 + X\n";
+    std::cout << "Mimic_Dance_102: L2(2s) + Down\n";
+    std::cout << "Mimic_Gangnam_Style: L2(2s) + Left\n";
+    std::cout << "Mimic_Punch: L2(2s) + Up\n";
 
     while (true)
     {

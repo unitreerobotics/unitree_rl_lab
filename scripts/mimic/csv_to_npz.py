@@ -3,7 +3,7 @@
 .. code-block:: bash
 
     # Usage
-    python csv_to_npz.py -f path_to_input.csv --input_fps 60
+    python csv_to_npz.py -f path_to_input.csv --input_fps 60 --robot_model g1_23dof
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -29,6 +29,13 @@ parser.add_argument(
 )
 parser.add_argument("--output_name", type=str, help="The name of the motion npz file.")
 parser.add_argument("--output_fps", type=int, default=50, help="The fps of the output motion.")
+parser.add_argument(
+    "--robot_model",
+    type=str,
+    default="g1_23dof",
+    choices=("g1_23dof", "g1_29dof", "g1_29dof_lock_waist"),
+    help="The robot model used to replay and export the motion.",
+)
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
@@ -60,8 +67,16 @@ from isaaclab.utils.math import axis_angle_from_quat, quat_conjugate, quat_mul, 
 ##
 # Pre-defined configs
 ##
-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_23DOF_MIMIC_CFG
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_CFG
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG
 
+ROBOT_CFG_MAP = {
+    "g1_23dof": UNITREE_G1_23DOF_MIMIC_CFG,
+    "g1_29dof": UNITREE_G1_29DOF_MIMIC_CFG,
+    "g1_29dof_lock_waist": UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_CFG,
+}
+ROBOT_CFG = ROBOT_CFG_MAP[args_cli.robot_model]
 
 @configclass
 class ReplayMotionsSceneCfg(InteractiveSceneCfg):
@@ -233,7 +248,46 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
     # Extract scene entities
     robot = scene["robot"]
-    robot_joint_indexes = robot.find_joints(scene.cfg.robot.joint_sdk_names, preserve_order=True)[0]
+    desired_joint_names = [j for j in scene.cfg.robot.joint_sdk_names if j and j.strip()]
+    if len(desired_joint_names) != len(scene.cfg.robot.joint_sdk_names):
+        print(f"[WARN]: filtered empty joint names from joint_sdk_names: {len(scene.cfg.robot.joint_sdk_names) - len(desired_joint_names)} removed")
+    robot_joint_indexes = robot.find_joints(desired_joint_names, preserve_order=True)[0]
+
+    # adjust motion dof dimension to match robot target joint dimension
+    motion_dof_joints = motion.motion_dof_poss.shape[1]
+    robot_dof_joints = len(robot_joint_indexes)
+    if motion_dof_joints != robot_dof_joints:
+        if motion_dof_joints == 29 and robot_dof_joints == 27:
+            # remove waist_roll and waist_pitch (keep waist_yaw)
+            motion.motion_dof_poss = torch.cat([motion.motion_dof_poss[:, :13], motion.motion_dof_poss[:, 15:]], dim=1)
+            motion.motion_dof_vels = torch.cat([motion.motion_dof_vels[:, :13], motion.motion_dof_vels[:, 15:]], dim=1)
+        elif motion_dof_joints == 29 and robot_dof_joints == 23:
+            # remove waist_roll, waist_pitch, left_wrist_pitch, left_wrist_yaw, right_wrist_pitch, right_wrist_yaw
+            motion.motion_dof_poss = torch.cat(
+                [
+                    motion.motion_dof_poss[:, :13],
+                    motion.motion_dof_poss[:, 15:20],
+                    motion.motion_dof_poss[:, 22:27],
+                ],
+                dim=1,
+            )
+            motion.motion_dof_vels = torch.cat(
+                [
+                    motion.motion_dof_vels[:, :13],
+                    motion.motion_dof_vels[:, 15:20],
+                    motion.motion_dof_vels[:, 22:27],
+                ],
+                dim=1,
+            )
+        elif motion_dof_joints == 23 and robot_dof_joints in (27, 29):
+            raise ValueError(
+                f"Motion DOF ({motion_dof_joints}) cannot be expanded to robot DOF ({robot_dof_joints}). "
+                "Please export motion with the matching robot model."
+            )
+        else:
+            raise ValueError(
+                f"Motion DOF ({motion_dof_joints}) is not compatible with robot DOF ({robot_dof_joints})."
+            )
 
     # ------- data logger -------------------------------------------------------
     log = {

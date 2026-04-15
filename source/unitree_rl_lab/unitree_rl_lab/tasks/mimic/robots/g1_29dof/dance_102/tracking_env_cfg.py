@@ -22,9 +22,12 @@ from isaaclab.utils import configclass
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 import unitree_rl_lab.tasks.mimic.mdp as mdp
-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_ACTION_SCALE
-from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG as ROBOT_CFG
-
+# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_ACTION_SCALE
+# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_CFG as ROBOT_CFG
+# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_ACTION_SCALE
+# from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_LOCK_WAIST_MIMIC_CFG as ROBOT_CFG
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_23DOF_MIMIC_ACTION_SCALE
+from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_23DOF_MIMIC_CFG as ROBOT_CFG
 ##
 # Scene definition
 ##
@@ -89,7 +92,7 @@ class CommandsCfg:
         # generate npz file before training
         # python python scripts/mimic/csv_to_npz.py -f path/to/G1_Take_102.bvh_60hz.csv --input_fps 60
         motion_file=f"{os.path.dirname(__file__)}/G1_Take_102.bvh_60hz.npz",
-        anchor_body_name="torso_link",
+        anchor_body_name="waist_yaw_link",
         resampling_time_range=(1.0e9, 1.0e9),
         debug_vis=True,
         pose_range={
@@ -110,7 +113,7 @@ class CommandsCfg:
             "right_hip_roll_link",
             "right_knee_link",
             "right_ankle_roll_link",
-            "torso_link",
+            "waist_yaw_link",
             "left_shoulder_roll_link",
             "left_elbow_link",
             "left_wrist_yaw_link",
@@ -126,7 +129,8 @@ class ActionsCfg:
     """Action specifications for the MDP."""
 
     JointPositionAction = mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=UNITREE_G1_29DOF_MIMIC_ACTION_SCALE, use_default_offset=True
+        # asset_name="robot", joint_names=[".*"], scale=UNITREE_G1_29DOF_MIMIC_ACTION_SCALE, use_default_offset=True
+        asset_name="robot", joint_names=[".*"], scale=UNITREE_G1_23DOF_MIMIC_ACTION_SCALE, use_default_offset=True
     )
 
 
@@ -201,7 +205,7 @@ class EventCfg:
         func=mdp.randomize_rigid_body_com,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names="torso_link"),
+            "asset_cfg": SceneEntityCfg("robot", body_names="waist_yaw_link"),
             "com_range": {"x": (-0.025, 0.025), "y": (-0.05, 0.05), "z": (-0.05, 0.05)},
         },
     )
