@@ -45,60 +45,24 @@ def _walk_packages(
             except Exception:
                 if onerror is not None:
                     onerror(info.name)
-                else:
-                    raise
-            else:
-                path = getattr(sys.modules[info.name], "__path__", None) or []
-
-                # don't traverse path items we've seen before
-                path = [p for p in path if not seen(p)]
-
-                yield from _walk_packages(path, info.name + ".", onerror)
 
 
 def import_packages():
-    sys.path.insert(0, f"{pathlib.Path(__file__).parent.parent}/source/unitree_rl_lab/unitree_rl_lab/tasks/")
-    for package in ["locomotion.robots", "mimic.robots"]:
-        package = importlib.import_module(package)
-        for _ in _walk_packages(package.__path__, package.__name__ + "."):
-            pass
-    sys.path.pop(0)
-
-
-import_packages()
-
-"""Rest everything follows."""
-
-import gymnasium as gym
-from prettytable import PrettyTable
-
-
-def main():
-    """Print all environments registered in `unitree_rl_lab` extension."""
-    # print all the available environments
-    table = PrettyTable(["S. No.", "Task Name", "Entry Point", "Config"])
-    table.title = "Available Environments in Unitree RL Lab"
-    # set alignment of table columns
-    table.align["Task Name"] = "l"
-    table.align["Entry Point"] = "l"
-    table.align["Config"] = "l"
-
-    # count of environments
-    index = 0
-    # acquire all Isaac environments names
-    for task_spec in gym.registry.values():
-        if "Unitree" in task_spec.id and "Isaac" not in task_spec.id:
-            # add details to table
-            table.add_row([index + 1, task_spec.id, task_spec.entry_point, task_spec.kwargs["env_cfg_entry_point"]])
-            # increment count
-            index += 1
-
-    print(table)
+    """Import all packages in the unitree_rl_lab module."""
+    # get the path to the unitree_rl_lab module
+    unitree_rl_lab_path = pathlib.Path(__file__).parent.parent / "unitree_rl_lab"
+    # import all packages
+    for info in _walk_packages([str(unitree_rl_lab_path)], "unitree_rl_lab."):
+        importlib.import_module(info.name)
 
 
 if __name__ == "__main__":
-    try:
-        # run the main function
-        main()
-    except Exception as e:
-        raise e
+    # import packages
+    import_packages()
+    # print all environments
+    for task_spec in gym.registry.values():
+        if "Unitree" in task_spec.id and "Isaac" not in task_spec.id:
+            print(f"Task: {task_spec.id}")
+            print(f"\tEntry point: {task_spec.entry_point}")
+            print(f"\tConfig: {task_spec.kwargs.get('cfg_entry_point', 'N/A')}")
+            print()

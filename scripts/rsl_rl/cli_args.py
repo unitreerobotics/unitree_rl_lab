@@ -29,69 +29,45 @@ def add_rsl_rl_args(parser: argparse.ArgumentParser):
     # -- load arguments
     arg_group.add_argument("--resume", action="store_true", default=False, help="Whether to resume from a checkpoint.")
     arg_group.add_argument("--load_run", type=str, default=None, help="Name of the run folder to resume from.")
-    arg_group.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file to resume from.")
-    # -- logger arguments
-    arg_group.add_argument(
-        "--logger", type=str, default=None, choices={"wandb", "tensorboard", "neptune"}, help="Logger module to use."
-    )
-    arg_group.add_argument(
-        "--log_project_name", type=str, default=None, help="Name of the logging project when using wandb or neptune."
-    )
+    arg_group.add_argument("--checkpoint", type=str, default=None, help="Checkpoint file name to resume from.")
 
 
-def parse_rsl_rl_cfg(task_name: str, args_cli: argparse.Namespace) -> RslRlOnPolicyRunnerCfg:
-    """Parse configuration for RSL-RL agent based on inputs.
+def parse_rsl_rl_cfg(task_name: str, args: argparse.Namespace) -> RslRlOnPolicyRunnerCfg:
+    """Parse configuration file for RSL-RL agent.
 
     Args:
-        task_name: The name of the environment.
-        args_cli: The command line arguments.
+        task_name: Name of the task.
+        args: Command line arguments.
 
     Returns:
-        The parsed configuration for RSL-RL agent based on inputs.
+        The configuration class for RSL-RL agent.
     """
-    from isaaclab_tasks.utils.parse_cfg import load_cfg_from_registry
+    # import configuration
+    if task_name.startswith("Unitree"):
+        from unitree_rl_lab.tasks import unitree_a1_cfgs
 
-    # load the default configuration
-    rslrl_cfg: RslRlOnPolicyRunnerCfg = load_cfg_from_registry(task_name, "rsl_rl_cfg_entry_point")
-    if rslrl_cfg.experiment_name == "":
-        rslrl_cfg.experiment_name = task_name.lower().replace("-", "_").removesuffix("_play")
-    rslrl_cfg = update_rsl_rl_cfg(rslrl_cfg, args_cli)
-    return rslrl_cfg
+        # check if the task name is provided
+        if task_name == "UnitreeA1TerrainEnv-v0":
+            cfg = unitree_a1_cfgs.UnitreeA1RoughCfg()
+            cfg_class = unitree_a1_cfgs.UnitreeA1RoughCfgPPO
+        else:
+            raise ValueError(f"Task {task_name} not found!")
+    else:
+        raise ValueError(f"Task {task_name} not supported!")
 
+    # update runner configuration with command line arguments
+    cfg_class.experiment_name = args.experiment_name
+    cfg_class.run_name = args.run_name
+    cfg_class.resume = args.resume
+    cfg_class.load_run = args.load_run
+    cfg_class.load_checkpoint = args.checkpoint
 
-def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Namespace):
-    """Update configuration for RSL-RL agent based on inputs.
+    # create runner configuration
+    runner_cfg = cfg_class()
+    runner_cfg.policy = cfg
 
-    Args:
-        agent_cfg: The configuration for RSL-RL agent.
-        args_cli: The command line arguments.
+    # set maximum iterations if provided
+    if args.max_iterations is not None:
+        runner_cfg.max_iterations = args.max_iterations
 
-    Returns:
-        The updated configuration for RSL-RL agent based on inputs.
-    """
-    # override the default configuration with CLI arguments
-    if hasattr(args_cli, "seed") and args_cli.seed is not None:
-        # randomly sample a seed if seed = -1
-        if args_cli.seed == -1:
-            args_cli.seed = random.randint(0, 10000)
-        agent_cfg.seed = args_cli.seed
-    if args_cli.resume is not None:
-        agent_cfg.resume = args_cli.resume
-    if args_cli.load_run is not None:
-        agent_cfg.load_run = args_cli.load_run
-    if args_cli.checkpoint is not None:
-        agent_cfg.load_checkpoint = args_cli.checkpoint
-    if args_cli.run_name is not None:
-        agent_cfg.run_name = args_cli.run_name
-    if args_cli.logger is not None:
-        agent_cfg.logger = args_cli.logger
-    # set the project name for wandb and neptune
-    if agent_cfg.logger in {"wandb", "neptune"} and args_cli.log_project_name:
-        agent_cfg.wandb_project = args_cli.log_project_name
-        agent_cfg.neptune_project = args_cli.log_project_name
-
-    if agent_cfg.experiment_name == "":
-        task_name = args_cli.task
-        agent_cfg.experiment_name = task_name.lower().replace("-", "_").removesuffix("_play")
-
-    return agent_cfg
+    return runner_cfg
