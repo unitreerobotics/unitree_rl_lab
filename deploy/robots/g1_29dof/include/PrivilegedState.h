@@ -1,178 +1,198 @@
 // Copyright (c) 2025, Unitree Robotics Co., Ltd.
 // All rights reserved.
 //
-// 特权信息 topic 订阅器 — 基于 POSIX 消息队列 (mqueue)
+// 特权信息 DDS Topic 订阅器
 //
-// 话题名称: /physhsi_privileged_state
-// 发布端:   unitree_mujoco (每个仿真步发送一次)
-// 订阅端:   g1_ctrl (PrivilegedSubscriber 周期性接收)
+// 话题名称: rt/privileged_state
+// 传输层:   Cyclone DDS (与 LowState/LowCmd 同一 DDS 总线)
+// 消息类型: PrivilegedStateMsg (128 bytes, POD)
 //
-// 消息队列特点:
-//   - 命名话题 (mq_open 按名称打开, 类似 DDS topic)
-//   - 发布/订阅 (mq_send / mq_receive)
-//   - 非阻塞接收 (O_NONBLOCK, 不阻塞 g1_ctrl 主循环)
-//   - 内核持久 (mq_unlink 前一直存在)
-//   - 消息优先级支持 (最新消息用高优先级)
+// 架构:
+//   unitree_mujoco (DDS DataWriter) ──DDS 域 0──→ g1_ctrl (DDS DataReader)
+//
+// 与现有架构一致:
+//   - 同一 DDS 域 (domain 0), 由 unitree_sdk2 ChannelFactory 初始化
+//   - 话题命名遵循 rt/ 约定 (与 rt/lowstate 等并行)
+//   - 消息格式为固定大小 POD struct, DDS 自动序列化
 
 #pragma once
 
 #include <eigen3/Eigen/Dense>
 #include <atomic>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
-#include <memory>
-#include <vector>
 
-#include <mqueue.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <errno.h>
+// Cyclone DDS C++11 API (已链接 ddscxx)
+#include <dds/dds.hpp>
 
 #include <spdlog/spdlog.h>
 
 
 // =============================================================================
-// PrivilegedStateMsg — 特权信息消息体 (128 bytes, 固定大小)
+// PrivilegedStateMsg — DDS 话题消息体 (128 bytes, POD)
 //
-// 总大小 = 15×4 + 3×4 + 3×4 + 4×4 + 3×4 + 3×4 = 124 bytes
-// 与 mqueue msgsize 严格对齐
+// 遵循 DDS topic type 要求:
+//   - 纯 POD (trivially copyable)
+//   - 无指针, 无动态数组
+//   - 固定大小 (编译期可知)
 // =============================================================================
 
 struct PrivilegedStateMsg
 {
-    // ---- 末端执行器世界坐标 (5 bodies × 3 = 15 floats, 60 bytes) ----
-    // 顺序: [0-2]=left_palm, [3-5]=right_palm,
-    //        [6-8]=left_ankle_pitch, [9-11]=right_ankle_pitch, [12-14]=d455_link
+    // ---- 末端执行器世界坐标 (5 bodies × 3 = 15 floats) ----
     float end_effector_pos_w[15];
 
-    // ---- 机器人根Link世界坐标 (3 floats, 12 bytes) ----
+    // ---- 机器人根Link世界坐标 (3 floats) ----
     float root_pos_w[3];
 
     // ---- 任务信息 ----
-    float box_pos_w[3];       // 箱子世界坐标 (12 bytes)
-    float box_quat_w[4];      // 箱子姿态四元数 wxyz (16 bytes)
-    float box_size[3];        // 箱子半边长 [w, d, h] (12 bytes)
-    float goal_pos_w[3];      // 目标点世界坐标 (12 bytes)
+    float box_pos_w[3];
+    float box_quat_w[4];     // w, x, y, z
+    float box_size[3];       // half-size [w, d, h]
+    float goal_pos_w[3];
 
-    // ---- 序列号 (可选, 用于检测丢帧) ----
+    // ---- 序列号 ----
     uint32_t sequence;
-    uint32_t padding;         // 对齐到 128 bytes
+    uint32_t padding;        // 对齐
 };
 
-// 编译期验证
 static_assert(sizeof(PrivilegedStateMsg) == 128,
-              "PrivilegedStateMsg must be exactly 128 bytes for mqueue msgsize");
+              "PrivilegedStateMsg must be exactly 128 bytes");
 
 
 // =============================================================================
-// PrivilegedSubscriber — 特权信息话题订阅器
+// PrivilegedSubscriber — 特权信息 DDS 订阅器
 //
-// 从 POSIX 消息队列 "话题" 接收 unitree_mujoco 发布的特权状态。
-// 线程安全: receive() 和 get_state() 可在不同线程调用。
+// 基于 Cyclone DDS DataReader, 与 unitree_sdk2 共享 DDS 域 0。
+// 使用 WaitSet 实现非阻塞等待: 有消息时读取, 无消息时立即返回。
 //
-// 使用方式 (同 DDS 订阅模式):
+// 使用方式 (与 LowState_t 订阅模式一致):
 //   auto sub = std::make_shared<PrivilegedSubscriber>();
-//   sub->connect();           // 打开话题 (类似 DDS wait_for_connection)
-//   sub->receive();           // 主循环中周期性收消息 (类似 DDS read/take)
-//   auto state = sub->get_state();  // observation 计算中读取
+//   sub->connect();           // 等待 DDS 发现 publisher
+//   sub->receive();           // 每周期拉取 (非阻塞)
+//   auto msg = sub->get_state();  // 获取最新消息
 // =============================================================================
 
 class PrivilegedSubscriber
 {
 public:
-    // 话题名称 (类似 DDS topic name "rt/privileged_state")
-    static constexpr const char* TOPIC_NAME = "/physhsi_privileged_state";
+    static constexpr const char* TOPIC_NAME = "rt/privileged_state";
+    static constexpr int DOMAIN_ID = 0;  // 与 ChannelFactory 同一域
 
-    PrivilegedSubscriber(const std::string& topic_name = TOPIC_NAME)
+    PrivilegedSubscriber(const std::string& topic_name = TOPIC_NAME,
+                         int domain_id = DOMAIN_ID)
         : topic_name_(topic_name)
+        , domain_id_(domain_id)
     {}
 
     ~PrivilegedSubscriber() { disconnect(); }
 
-    // ---- 订阅话题 (类似 DDS DataReader 创建) ----
-    // timeout_ms: 等待 publisher 创建话题的超时时间
+    // ---- 订阅话题 (类似 DDS DataReader 创建 + wait_for_connection) ----
     bool connect(int timeout_ms = 5000)
     {
-        int elapsed = 0;
-        const int poll_ms = 50;
-
-        while (elapsed < timeout_ms)
+        try
         {
-            // O_RDONLY | O_NONBLOCK: 只读 + 非阻塞 (不卡住 g1_ctrl 主循环)
-            mqd_ = mq_open(topic_name_.c_str(), O_RDONLY | O_NONBLOCK);
-            if (mqd_ >= 0)
+            // 在 DDS 域 0 创建 participant (与 unitree_sdk2 同一域)
+            participant_ = dds::domain::DomainParticipant(domain_id_);
+
+            // 创建话题 (Cyclone DDS 自动注册 POD 类型)
+            topic_ = dds::topic::Topic<PrivilegedStateMsg>(
+                participant_, topic_name_);
+
+            // 创建 Subscriber + DataReader
+            dds::sub::Subscriber sub(participant_);
+            dds::sub::qos::DataReaderQos dr_qos;
+            dr_qos << dds::core::policy::Reliability::Reliable();
+            dr_qos << dds::core::policy::Durability::TransientLocal();
+            dr_qos << dds::core::policy::History::KeepLast(10);
+
+            reader_ = dds::sub::DataReader<PrivilegedStateMsg>(
+                sub, topic_, dr_qos);
+
+            // 创建 WaitSet + ReadCondition (非阻塞读取)
+            waitset_ = dds::core::cond::WaitSet();
+            dds::sub::cond::ReadCondition rc(
+                reader_,
+                dds::sub::status::DataState::any(),
+                [](const PrivilegedStateMsg&) { return true; }
+            );
+            waitset_.attach_condition(rc);
+
+            // 等待 publisher 上线 (通过 DDS 发现机制)
+            int elapsed = 0;
+            const int poll_ms = 100;
+            while (elapsed < timeout_ms)
             {
-                // 获取消息队列属性, 验证消息大小匹配
-                struct mq_attr attr;
-                if (mq_getattr(mqd_, &attr) == 0)
+                // 检查是否有匹配的 DataWriter
+                auto pub_count = dds::sub::matched_publications(reader_);
+                // 注意: dds::sub::matched_publications 返回
+                //       dds::core::InstanceHandleSeq
+                if (pub_count.size() > 0)
                 {
-                    if (attr.mq_msgsize == sizeof(PrivilegedStateMsg))
-                    {
-                        spdlog::info("PrivilegedSubscriber: subscribed to topic '{}' "
-                                     "(max_msgs={}, msgsize={})",
-                                     topic_name_, attr.mq_maxmsg, attr.mq_msgsize);
-                        connected_ = true;
-                        return true;
-                    }
-                    else
-                    {
-                        spdlog::error("PrivilegedSubscriber: topic msgsize mismatch "
-                                      "(expected {}, got {})",
-                                      sizeof(PrivilegedStateMsg), attr.mq_msgsize);
-                        mq_close(mqd_);
-                        mqd_ = -1;
-                        return false;
-                    }
+                    spdlog::info(
+                        "PrivilegedSubscriber: discovered publisher on "
+                        "topic '{}' (domain {})",
+                        topic_name_, domain_id_);
+                    connected_ = true;
+                    return true;
                 }
+
+                usleep(poll_ms * 1000);
+                elapsed += poll_ms;
             }
 
-            if (errno != ENOENT && errno != EAGAIN)
-            {
-                spdlog::error("PrivilegedSubscriber: mq_open failed (errno={})", errno);
-                return false;
-            }
-
-            usleep(poll_ms * 1000);
-            elapsed += poll_ms;
+            spdlog::warn("PrivilegedSubscriber: no publisher for topic '{}' "
+                         "within {}ms", topic_name_, timeout_ms);
+            return false;
         }
-
-        spdlog::warn("PrivilegedSubscriber: topic '{}' not available within {}ms",
-                     topic_name_, timeout_ms);
-        return false;
+        catch (const dds::core::Exception& e)
+        {
+            spdlog::error("PrivilegedSubscriber: DDS error — {}", e.what());
+            disconnect();
+            return false;
+        }
     }
 
-    // ---- 接收消息 (类似 DDS DataReader::take) ----
-    // 非阻塞: 没有新消息时立即返回
-    // 高频调用: 建议在主循环或 FSM pre_run 中调用
+    // ---- 接收消息 (非阻塞, 类似 DDS take) ----
+    // 在主循环或 FSM pre_run 中周期调用
     void receive()
     {
-        if (mqd_ < 0) return;
+        if (!connected_) return;
 
-        PrivilegedStateMsg msg;
-        // 非阻塞接收, 取最高优先级消息 (模拟 DDS take 语义)
-        ssize_t n = mq_receive(mqd_, reinterpret_cast<char*>(&msg),
-                               sizeof(PrivilegedStateMsg), nullptr);
-
-        if (n == sizeof(PrivilegedStateMsg))
+        try
         {
-            std::lock_guard<std::mutex> lk(mutex_);
-            cached_msg_ = msg;
-            msg_count_++;
+            // 检查是否有数据 (超时 0 = 非阻塞)
+            auto conditions = waitset_.wait(dds::core::Duration(0, 0));
+
+            if (conditions.size() > 0)
+            {
+                // 读取所有可用样本, 保留最新一条
+                auto samples = reader_.take();
+                if (samples.length() > 0)
+                {
+                    // 取最后一条 (最新消息)
+                    std::lock_guard<std::mutex> lk(mutex_);
+                    cached_msg_ = samples[samples.length() - 1].data();
+                    msg_count_ += samples.length();
+                }
+            }
         }
-        // EAGAIN: 无消息 (正常, 非阻塞模式)
-        // 其他错误: 忽略, 下一轮重试
+        catch (const dds::core::Exception& e)
+        {
+            spdlog::warn("PrivilegedSubscriber: receive error — {}", e.what());
+        }
     }
 
-    // 取消订阅
+    // ---- 取消订阅 ----
     void disconnect()
     {
-        if (mqd_ >= 0)
-        {
-            mq_close(mqd_);
-            mqd_ = -1;
-        }
         connected_ = false;
+        // DDS 对象在析构时自动清理
+        reader_ = dds::sub::DataReader<PrivilegedStateMsg>(dds::core::null);
+        topic_ = dds::topic::Topic<PrivilegedStateMsg>(dds::core::null);
+        participant_ = dds::domain::DomainParticipant(dds::core::null);
     }
 
     // ---- 获取最新消息 (线程安全) ----
@@ -182,15 +202,19 @@ public:
         return cached_msg_;
     }
 
-    // ---- 状态查询 ----
     bool is_connected() const { return connected_; }
     uint64_t msg_count() const { return msg_count_; }
 
 private:
     std::string topic_name_;
-    mqd_t mqd_ = -1;
-    bool connected_ = false;
+    int domain_id_;
 
+    dds::domain::DomainParticipant participant_{dds::core::null};
+    dds::topic::Topic<PrivilegedStateMsg> topic_{dds::core::null};
+    dds::sub::DataReader<PrivilegedStateMsg> reader_{dds::core::null};
+    dds::core::cond::WaitSet waitset_;
+
+    bool connected_ = false;
     PrivilegedStateMsg cached_msg_{};
     uint64_t msg_count_ = 0;
     mutable std::mutex mutex_;
@@ -198,81 +222,92 @@ private:
 
 
 // =============================================================================
-// 全局指针 (在 main.cpp 中初始化)
+// 全局指针 (在 main.cpp 中定义和初始化)
 // =============================================================================
 extern std::shared_ptr<PrivilegedSubscriber> g_privileged_sub;
 
 
 // =============================================================================
-// PrivilegedPublisher — 特权信息话题发布器 (unitree_mujoco 侧使用)
+// PrivilegedPublisher — 特权信息 DDS 发布器 (unitree_mujoco 侧)
+//
+// 基于 Cyclone DDS DataWriter。
 //
 // 使用方式:
 //   auto pub = std::make_shared<PrivilegedPublisher>();
 //   pub->connect();
-//   pub->publish(msg);  // 每个仿真步调用
+//   pub->publish(msg);  // 每仿真步调用
 // =============================================================================
 
 class PrivilegedPublisher
 {
 public:
-    static constexpr const char* TOPIC_NAME = "/physhsi_privileged_state";
+    static constexpr const char* TOPIC_NAME = "rt/privileged_state";
+    static constexpr int DOMAIN_ID = 0;
 
-    PrivilegedPublisher(const std::string& topic_name = TOPIC_NAME)
+    PrivilegedPublisher(const std::string& topic_name = TOPIC_NAME,
+                        int domain_id = DOMAIN_ID)
         : topic_name_(topic_name)
+        , domain_id_(domain_id)
     {}
 
     ~PrivilegedPublisher() { disconnect(); }
 
-    // 创建话题 (类似 DDS DataWriter 创建)
-    bool connect(int max_msgs = 10)
+    // 创建 DDS DataWriter
+    bool connect()
     {
-        struct mq_attr attr;
-        attr.mq_flags   = 0;                          // 阻塞模式 (发布端)
-        attr.mq_maxmsg  = max_msgs;                   // 最多缓存 10 条消息
-        attr.mq_msgsize = sizeof(PrivilegedStateMsg); // 消息大小 128 bytes
-        attr.mq_curmsgs = 0;
-
-        // O_CREAT | O_WRONLY: 创建 + 只写
-        mqd_ = mq_open(topic_name_.c_str(),
-                       O_CREAT | O_WRONLY,
-                       0666,
-                       &attr);
-
-        if (mqd_ < 0)
+        try
         {
-            spdlog::error("PrivilegedPublisher: mq_open failed (errno={})", errno);
+            participant_ = dds::domain::DomainParticipant(domain_id_);
+
+            topic_ = dds::topic::Topic<PrivilegedStateMsg>(
+                participant_, topic_name_);
+
+            dds::pub::Publisher pub(participant_);
+
+            dds::pub::qos::DataWriterQos dw_qos;
+            dw_qos << dds::core::policy::Reliability::Reliable();
+            dw_qos << dds::core::policy::Durability::TransientLocal();
+            dw_qos << dds::core::policy::History::KeepLast(10);
+
+            writer_ = dds::pub::DataWriter<PrivilegedStateMsg>(
+                pub, topic_, dw_qos);
+
+            spdlog::info("PrivilegedPublisher: publishing to topic '{}' "
+                         "(domain {})", topic_name_, domain_id_);
+            return true;
+        }
+        catch (const dds::core::Exception& e)
+        {
+            spdlog::error("PrivilegedPublisher: DDS error — {}", e.what());
             return false;
         }
-
-        spdlog::info("PrivilegedPublisher: publishing to topic '{}'", topic_name_);
-        return true;
     }
 
-    // 发布消息 (类似 DDS DataWriter::write)
+    // 发布消息
     void publish(const PrivilegedStateMsg& msg)
     {
-        if (mqd_ < 0) return;
-
-        // 优先级 0 (默认), 高优先级消息可以插队
-        if (mq_send(mqd_, reinterpret_cast<const char*>(&msg),
-                    sizeof(PrivilegedStateMsg), 0) != 0)
+        try
         {
-            // 队列满时丢弃最旧消息 (通过 mq_setattr 或其他方式)
-            // 简单处理: 忽略, 下一帧继续
+            writer_.write(msg);
+        }
+        catch (const dds::core::Exception& e)
+        {
+            spdlog::warn("PrivilegedPublisher: write error — {}", e.what());
         }
     }
 
     void disconnect()
     {
-        if (mqd_ >= 0)
-        {
-            mq_close(mqd_);
-            mq_unlink(topic_name_.c_str());  // 删除话题 (类似 DDS delete_topic)
-            mqd_ = -1;
-        }
+        writer_ = dds::pub::DataWriter<PrivilegedStateMsg>(dds::core::null);
+        topic_ = dds::topic::Topic<PrivilegedStateMsg>(dds::core::null);
+        participant_ = dds::domain::DomainParticipant(dds::core::null);
     }
 
 private:
     std::string topic_name_;
-    mqd_t mqd_ = -1;
+    int domain_id_;
+
+    dds::domain::DomainParticipant participant_{dds::core::null};
+    dds::topic::Topic<PrivilegedStateMsg> topic_{dds::core::null};
+    dds::pub::DataWriter<PrivilegedStateMsg> writer_{dds::core::null};
 };
