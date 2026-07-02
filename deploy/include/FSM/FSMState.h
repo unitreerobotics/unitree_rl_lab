@@ -56,6 +56,7 @@ public:
     void pre_run()
     {
         lowstate->update();
+        if(privilegedstate) privilegedstate->update();
         if(keyboard) keyboard->update();
     }
 
@@ -66,5 +67,6 @@ public:
 
     static std::unique_ptr<LowCmd_t> lowcmd;
     static std::shared_ptr<LowState_t> lowstate;
+    static std::shared_ptr<PrivilegedState_t> privilegedstate;
     static std::shared_ptr<Keyboard> keyboard;
 };

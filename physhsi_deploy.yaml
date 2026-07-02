@@ -1,0 +1,88 @@
+# ===== 机器人基础配置 =====
+joint_ids_map: [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10, 16, 23, 5, 11,
+  17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+step_dt: 0.02    # sim_dt(0.005) × decimation(4)
+
+# ===== PD 控制参数 (carrybox 与 standup 相同) =====
+stiffness: [150, 150, 150, 300, 40, 40,
+            150, 150, 150, 300, 40, 40,
+            300, 300, 300,
+            200, 200, 200, 100, 20,
+            200, 200, 200, 100, 20]
+
+damping: [2, 2, 2, 4, 1, 1,
+          2, 2, 2, 4, 1, 1,
+          4, 4, 4,
+          3, 3, 3, 1, 0.5,
+          3, 3, 3, 1, 0.5]
+
+# ===== 默认关节角度 (carrybox 使用站立位姿) =====
+default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.1, 0.0, 1.2, 0.0,
+                    0.0, -0.1, 0.0, 1.2, 0.0]
+
+# ===== 命令 =====
+commands:
+  base_velocity:
+    ranges:
+      lin_vel_x: [0.0, 1.0]
+      lin_vel_y: [-0.3, 0.3]
+      ang_vel_z: [-0.3, 0.3]
+      heading: null
+
+# ===== 动作 =====
+actions:
+  JointPositionAction:
+    clip: null
+    joint_names: [.*]
+    scale: 0.25
+    # offset 自动使用 default_joint_pos
+
+# ===== 观测 (★ 核心：use_gym_history: true + history_length: 6) =====
+observations:
+  use_gym_history: true    # ★ 按时间步交织 (与 carrybox obs_buf 格式一致)
+
+  base_ang_vel:
+    params: {}
+    scale: [0.25, 0.25, 0.25]
+    history_length: 6
+
+  projected_gravity:
+    params: {}
+    scale: [1.0, 1.0, 1.0]
+    history_length: 6
+
+  joint_pos_rel:
+    params: {}
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    history_length: 6
+
+  joint_vel_rel:
+    params: {}
+    scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+            0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+            0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+    history_length: 6
+
+  end_effector_pos:           # ★ PhysHSI 特有
+    params: {}
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0]
+    history_length: 6
+
+  last_action:
+    params: {}
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    history_length: 6
+
+  task_obs:                   # ★ PhysHSI 特有 (箱子+目标点)
+    params: {}
+    scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0]
+    history_length: 6

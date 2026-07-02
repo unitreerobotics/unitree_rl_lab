@@ -6,6 +6,7 @@
 
 std::unique_ptr<LowCmd_t> FSMState::lowcmd = nullptr;
 std::shared_ptr<LowState_t> FSMState::lowstate = nullptr;
+std::shared_ptr<PrivilegedState_t> FSMState::privilegedstate = nullptr;
 std::shared_ptr<Keyboard> FSMState::keyboard = std::make_shared<Keyboard>();
 
 void init_fsm_state()
@@ -23,6 +24,12 @@ void init_fsm_state()
     spdlog::info("Waiting for connection to robot...");
     FSMState::lowstate->wait_for_connection();
     spdlog::info("Connected to robot.");
+
+    // 订阅特权信息话题 (遵循 LowState 的 SubscriptionBase 模式)
+    FSMState::privilegedstate = std::make_shared<PrivilegedState_t>();
+    spdlog::info("Waiting for privileged state publisher...");
+    FSMState::privilegedstate->wait_for_connection();
+    spdlog::info("Privileged state topic connected.");
 }
 
 int main(int argc, char** argv)
@@ -43,7 +50,7 @@ int main(int argc, char** argv)
         spdlog::critical("Unmatched robot type.");
         exit(-1);
     }
-    
+
     // Initialize FSM
     auto fsm = std::make_unique<CtrlFSM>(param::config["FSM"]);
     fsm->start();
@@ -55,7 +62,6 @@ int main(int argc, char** argv)
     {
         sleep(1);
     }
-    
+
     return 0;
 }
-

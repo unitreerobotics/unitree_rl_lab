@@ -1,0 +1,159 @@
+# =============================================================================
+# PhysHSI 多输入 ONNX 模型对应的 deploy.yaml
+# ONNX 模型: policy_name_multi.onnx (7 个独立输入，由 wrap_onnx_multi_input.py 生成)
+#
+# ★ 数据流: C++ ObservationManager → obs_map → OrtRunner → ONNX 推理 → 动作
+# ★ 7 个 ONNX 输入 = 7 个 observation group, 每个 group 内 use_gym_history: true
+#
+# 738 维 = 6 时间步 × 每步 123 维
+# 每步 123 维组成 (严格按此顺序):
+#   [0-2]   base_ang_vel × 0.25     (3)   IMU 陀螺仪
+#   [3-5]   projected_gravity       (3)   IMU 重力投影
+#   [6-34]  joint_pos_rel           (29)  关节位置 - 默认值
+#   [35-63] joint_vel_rel × 0.05    (29)  关节速度
+#   [64-78] end_effector_pos        (15)  5个末端在本体坐标系位置
+#   [79-107]last_action             (29)  上一步动作
+#   [108-122]task_obs               (15)  任务感知 (箱子+目标点)
+#
+# use_gym_history: true → C++ 按时间步交织输出:
+#   [t-5_all123] [t-4_all123] [t-3_all123] [t-2_all123] [t-1_all123] [t_all123]
+# =============================================================================
+
+# ===== 机器人基础配置 =====
+joint_ids_map: [0, 6, 12, 1, 7, 13, 2, 8, 14, 3, 9, 15, 22, 4, 10, 16, 23, 5, 11,
+  17, 24, 18, 25, 19, 26, 20, 27, 21, 28]
+step_dt: 0.02
+
+# ===== PD 控制参数 =====
+stiffness: [150, 150, 150, 300, 40, 40,
+            150, 150, 150, 300, 40, 40,
+            300, 300, 300,
+            200, 200, 200, 100, 20,
+            200, 200, 200, 100, 20]
+
+damping: [2, 2, 2, 4, 1, 1,
+          2, 2, 2, 4, 1, 1,
+          4, 4, 4,
+          3, 3, 3, 1, 0.5,
+          3, 3, 3, 1, 0.5]
+
+# ===== 默认关节角度 =====
+default_joint_pos: [-0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    -0.1, 0.0, 0.0, 0.3, -0.2, 0.0,
+                    0.0, 0.0, 0.0,
+                    0.0, 0.1, 0.0, 1.2, 0.0,
+                    0.0, -0.1, 0.0, 1.2, 0.0]
+
+# ===== 命令 =====
+commands:
+  base_velocity:
+    ranges:
+      lin_vel_x: [0.0, 1.0]
+      lin_vel_y: [-0.3, 0.3]
+      ang_vel_z: [-0.3, 0.3]
+      heading: null
+
+# ===== 动作 =====
+actions:
+  JointPositionAction:
+    clip: null
+    joint_names: [.*]
+    scale: 0.25
+    # offset 自动使用 default_joint_pos
+
+# =============================================================================
+# 观测 — 多 Group 模式: 7 个 group → obs_map 7 个 key → 匹配 7 个 ONNX 输入
+#
+# C++ ObservationManager._prapare_terms() 检测:
+#   - 第一个 key 的值无 "params" 键 → multi-group 模式
+#   - 每个 group 名 = obs_map key = ONNX 输入名 (必须严格一致)
+#   - _prepare_group_terms 处理 group 内的 use_gym_history 和 observation terms
+#
+# C++ compute_group("base_ang_vel") 输出 (use_gym_history=true, history_length=6):
+#   h=0: term.get(0) = t-5 的 base_ang_vel  [3]
+#   h=1: term.get(1) = t-4 的 base_ang_vel  [3]
+#   ...                                       ...
+#   h=5: term.get(5) = t   的 base_ang_vel  [3]
+#   → [18]
+# =============================================================================
+observations:
+
+  # ── Group 1: base_ang_vel → ONNX 输入 [B, 18] ──
+  # 3 dims × 6 history = 18, scale = 0.25
+  base_ang_vel:
+    use_gym_history: true
+    base_ang_vel:
+      params: {}
+      scale: [0.25, 0.25, 0.25]
+      history_length: 6
+
+  # ── Group 2: projected_gravity → ONNX 输入 [B, 18] ──
+  # 3 dims × 6 history = 18, scale = 1.0
+  projected_gravity:
+    use_gym_history: true
+    projected_gravity:
+      params: {}
+      scale: [1.0, 1.0, 1.0]
+      history_length: 6
+
+  # ── Group 3: joint_pos_rel → ONNX 输入 [B, 174] ──
+  # 29 dims × 6 history = 174, scale = 1.0
+  joint_pos_rel:
+    use_gym_history: true
+    joint_pos_rel:
+      params: {}
+      scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      history_length: 6
+
+  # ── Group 4: joint_vel_rel → ONNX 输入 [B, 174] ──
+  # 29 dims × 6 history = 174, scale = 0.05
+  joint_vel_rel:
+    use_gym_history: true
+    joint_vel_rel:
+      params: {}
+      scale: [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+              0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05,
+              0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
+      history_length: 6
+
+  # ── Group 5: end_effector_pos → ONNX 输入 [B, 90] ──
+  # 15 dims × 6 history = 90, scale = 1.0
+  # ★ 组成: left_palm(3) | right_palm(3) | left_ankle(3) | right_ankle(3) | d455_head(3)
+  # ★ 计算: quat_rotate_inverse(root_quat, pos_global - root_pos_global)
+  # ⚠ 需要在 C++ 侧注册 REGISTER_OBSERVATION(end_effector_pos) 函数
+  end_effector_pos:
+    use_gym_history: true
+    end_effector_pos:
+      params: {}
+      scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0]
+      history_length: 6
+
+  # ── Group 6: last_action → ONNX 输入 [B, 174] ──
+  # 29 dims × 6 history = 174, scale = 1.0
+  last_action:
+    use_gym_history: true
+    last_action:
+      params: {}
+      scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+      history_length: 6
+
+  # ── Group 7: task_obs → ONNX 输入 [B, 90] ──
+  # 15 dims × 6 history = 90, scale = 1.0
+  # ★ 组成: box_pos_local(3) | box_rot_6d_local(6) | box_size(3) | goal_pos_local(3)
+  # ★ box_pos_local: quat_rotate_inverse(root_quat, box_pos - root_pos)
+  # ★ box_rot_6d_local: quat_to_tan_norm(conjugate(root_quat) * box_quat)
+  # ★ box_size: 静态 [width, depth, height]
+  # ★ goal_pos_local: quat_rotate_inverse(root_quat, goal_pos - root_pos)
+  # ⚠ 需要在 C++ 侧注册 REGISTER_OBSERVATION(task_obs) 函数
+  task_obs:
+    use_gym_history: true
+    task_obs:
+      params: {}
+      scale: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+              1.0, 1.0, 1.0, 1.0, 1.0]
+      history_length: 6

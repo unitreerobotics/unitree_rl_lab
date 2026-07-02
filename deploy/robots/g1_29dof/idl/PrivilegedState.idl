@@ -1,0 +1,46 @@
+// =============================================================================
+// PrivilegedState.idl — 特权信息 DDS 消息类型定义
+//
+// 放置路径: unitree_sdk2 的 unitree/idl/hg/ 目录下
+//   或在本项目的 deploy/robots/g1_29dof/idl/ 下 (需配置 CMake 的 IDL 编译)
+//
+// 编译命令 (Cyclone DDS):
+//   idlc -l cpp PrivilegedState.idl
+//
+// 生成文件: PrivilegedState_.hpp (C++ 头文件, 含 DDS 类型支持)
+//   命名空间: unitree_hg::msg::dds_::PrivilegedState_
+// =============================================================================
+
+module unitree_hg {
+  module msg {
+
+    @topic
+    struct PrivilegedState_
+    {
+      // 末端执行器世界坐标 (5 bodies × 3 = 15 floats)
+      float end_effector_pos_w[15];
+
+      // 机器人根Link世界坐标 (3 floats)
+      float root_pos_w[3];
+
+      // 箱子世界坐标 (3 floats)
+      float box_pos_w[3];
+
+      // 箱子世界姿态四元数 w,x,y,z (4 floats)
+      float box_quat_w[4];
+
+      // 箱子半边长 (3 floats, 静态)
+      float box_size[3];
+
+      // 目标点世界坐标 (3 floats)
+      float goal_pos_w[3];
+
+      // 帧序号
+      unsigned long sequence;
+
+      // 对齐填充
+      unsigned long padding;
+    };
+
+  };
+};
