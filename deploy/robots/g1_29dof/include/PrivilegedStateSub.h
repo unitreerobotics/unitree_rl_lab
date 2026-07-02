@@ -36,7 +36,7 @@
 #include "unitree/dds_wrapper/robots/g1/defines.h"
 
 // ★ IDL 生成的消息类型头文件 (需要在 unitree_sdk2 中添加 IDL 并编译生成)
-#include "unitree/idl/hg/PrivilegedState_.hpp"
+#include "PrivilegedState_.hpp"
 
 namespace unitree
 {
