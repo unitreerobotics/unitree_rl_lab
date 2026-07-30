@@ -95,8 +95,12 @@ REGISTER_OBSERVATION(motion_anchor_ori_b)
     auto real_quat_w = torso_quat_w(env);
     auto ref_quat_w = anchor_quat_w(State_Mimic::motion);
 
-    auto rot_ = (init_quat * ref_quat_w).conjugate() * real_quat_w;
-    auto rot = rot_.toRotationMatrix().transpose();
+    Eigen::Quaternionf rot_ = (init_quat * ref_quat_w).conjugate() * real_quat_w;
+    // Materialize the matrix: with `auto`, transpose() is a lazy expression that
+    // references the temporary returned by toRotationMatrix(), which is destroyed
+    // at the end of this statement. Reading rot(i,j) afterwards is use-after-scope
+    // and fills the observation with garbage.
+    Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
 
     Eigen::Matrix<float, 6, 1> data;
     data << rot(0, 0), rot(0, 1), rot(1, 0), rot(1, 1), rot(2, 0), rot(2, 1);
@@ -170,7 +174,18 @@ void State_Mimic::enter()
     }
 
     motion = motion_; // set for specific motion
+    // Refresh robot data before any anchor math (State_RLBase::enter() does this
+    // too). On the first entry data.root_quat_w has never been filled, so
+    // init_quat and motion->reset() would otherwise use uninitialized data.
+    env->robot->update();
     env->reset();
+    // Hold the measured pose until the policy computes its first action;
+    // otherwise run() pushes zero/stale targets for the first control ticks.
+    for (int i = 0; i < env->robot->data.joint_ids_map.size(); ++i) {
+        int idx = env->robot->data.joint_ids_map[i];
+        lowcmd->msg_.motor_cmd()[idx].q() = lowstate->msg_.motor_state()[idx].q();
+    }
+    first_action_ = false;
     // Start policy thread
     policy_thread_running = true;
     policy_thread = std::thread([this]{
@@ -193,6 +208,7 @@ void State_Mimic::enter()
             env->robot->update();
             motion->update(env->episode_length * env->step_dt + time_range_[0]);
             env->step();
+            first_action_ = true;
 
             // Sleep
             std::this_thread::sleep_until(sleepTill);
@@ -204,6 +220,7 @@ void State_Mimic::enter()
 
 void State_Mimic::run()
 {
+    if (!first_action_) return; // keep holding the entry pose set in enter()
     auto action = env->action_manager->processed_actions();
     for(int i(0); i < env->robot->data.joint_ids_map.size(); i++) {
         lowcmd->msg_.motor_cmd()[env->robot->data.joint_ids_map[i]].q() = action[i];

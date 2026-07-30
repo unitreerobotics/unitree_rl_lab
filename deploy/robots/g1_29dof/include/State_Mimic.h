@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "FSM/State_RLBase.h"
 
 class State_Mimic : public FSMState
@@ -28,6 +30,7 @@ private:
 
     std::thread policy_thread;
     bool policy_thread_running = false;
+    std::atomic<bool> first_action_{false}; // run() must not push actions before the first env->step()
     std::array<float, 2> time_range_;
 };
 
