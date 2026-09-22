@@ -17,8 +17,8 @@ from isaaclab.utils import configclass
 
 from unitree_rl_lab.assets.robots import unitree_actuators
 
-UNITREE_MODEL_DIR = "path/to/unitree_model"  # Replace with the actual path to your unitree_model directory
-UNITREE_ROS_DIR = "path/to/unitree_ros"  # Replace with the actual path to your unitree_ros package
+UNITREE_MODEL_DIR = "/home/sallu/unitree_rl_lab/unitree_model/"  # Replace with the actual path to your unitree_model directory
+UNITREE_ROS_DIR = "/opt/ros/humble/setup.bash"  # Replace with the actual path to your unitree_ros package
 
 
 @configclass

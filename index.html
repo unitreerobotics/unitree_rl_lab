@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go2 Controller</title>
+<style>
+  :root {
+    --bg: #111417;
+    --panel: rgba(20, 23, 27, 0.94);
+    --border: #2a2f36;
+    --text: #e8eaed;
+    --muted: #9aa4af;
+    --accent: #3b82f6;
+    --danger: #dc2626;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+
+    /* Background image (tb.png) with a light overlay so text stays readable
+       without hiding the image. Place tb.png in the same folder as this file. */
+    background:
+      linear-gradient(rgba(10, 12, 14, 0.35), rgba(10, 12, 14, 0.45)),
+      url('bg.png') center / cover no-repeat fixed,
+      var(--bg);
+  }
+  .card {
+    width: 100%;
+    max-width: 640px;
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+  }
+  .top-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 16px;
+  }
+  .lang-toggle {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .lang-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #20242a;
+    color: var(--muted);
+    cursor: pointer;
+    width: auto;
+    margin: 0;
+  }
+  .lang-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+  }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    margin-bottom: 20px;
+    color: var(--muted);
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--danger);
+    flex-shrink: 0;
+  }
+  .dot.up { background: var(--ok); }
+  button {
+    width: 100%;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    color: white;
+    transition: opacity 0.15s;
+  }
+  button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  button:not(:disabled):active { opacity: 0.8; }
+  #btn-connect { background: #374151; }
+  #btn-run { background: var(--accent); }
+  #btn-exit { background: #4b5563; }
+  #btn-estop {
+    background: var(--danger);
+    margin-top: 16px;
+    padding: 18px;
+    font-size: 16px;
+    letter-spacing: 0.5px;
+  }
+  .log-label {
+    margin-top: 20px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+  .log {
+    background: #0d0f12;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 480px;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .log div { margin-bottom: 5px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="top-row">
+      <div>
+        <h1 data-i18n="title">Go2 Controller</h1>
+        <div class="subtitle">
+          <span data-i18n="subtitlePrefix">Control panel</span> &mdash; ws://<span id="host"></span>:8888
+        </div>
+      </div>
+      <div class="lang-toggle">
+        <button class="lang-btn" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="ja">日本語</button>
+      </div>
+    </div>
+
+    <div class="status-row">
+      <div id="conn-dot" class="dot"></div>
+      <span id="conn-text" data-i18n="disconnected">Disconnected from control server</span>
+    </div>
+
+    <button id="btn-connect" data-i18n="connect">Connect to Robot</button>
+    <button id="btn-run" data-i18n="run">Run Walking Policy</button>
+    <button id="btn-exit" data-i18n="exit">Exit Walking Policy</button>
+    <button id="btn-estop" data-i18n="estop">EMERGENCY STOP</button>
+
+    <div class="log-label">
+      <span data-i18n="logLabel">Activity log</span>
+      <!-- <span data-i18n="logNote">(always in English)</span> -->
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+
+<script>
+  const translations = {
+    en: {
+      title: "Go2 Controller",
+      subtitlePrefix: "Control panel",
+      connected: "Connected to control server",
+      disconnected: "Disconnected from control server",
+      connect: "Connect to Robot",
+      run: "Run Walking Policy",
+      exit: "Exit Walking Policy",
+      estop: "EMERGENCY STOP",
+      logLabel: "Activity log",
+      logNote: "(always in English)",
+    },
+    ja: {
+      title: "Go2 コントローラー",
+      subtitlePrefix: "コントロールパネル",
+      connected: "コントロールサーバーに接続済み",
+      disconnected: "コントロールサーバーから切断されました",
+      connect: "ロボットに接続",
+      run: "歩行ポリシーを実行",
+      exit: "歩行ポリシーを終了",
+      estop: "緊急停止",
+      logLabel: "アクティビティログ",
+      logNote: "(常に英語で表示されます)",
+    },
+  };
+
+  let currentLang = localStorage.getItem('go2ctrl_lang') || 'ja';
+
+  function applyLanguage(lang) {
+    currentLang = lang;
+    try { localStorage.setItem('go2ctrl_lang', lang); } catch (e) { /* ignore */ }
+
+    const dict = translations[lang] || translations.en;
+    document.documentElement.lang = lang;
+
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+      const key = el.getAttribute('data-i18n');
+      if (dict[key] !== undefined) el.textContent = dict[key];
+    });
+
+    // Keep the connection status text in sync with the current language too.
+    document.getElementById('conn-text').textContent = wsUp ? dict.connected : dict.disconnected;
+
+    document.querySelectorAll('.lang-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.lang === lang);
+    });
+  }
+
+  document.querySelectorAll('.lang-btn').forEach((btn) => {
+    btn.addEventListener('click', () => applyLanguage(btn.dataset.lang));
+  });
+
+  const hostSpan = document.getElementById('host');
+  hostSpan.textContent = location.hostname || 'localhost';
+
+  const dot = document.getElementById('conn-dot');
+  const connText = document.getElementById('conn-text');
+  const logEl = document.getElementById('log');
+  const buttons = {
+    connect: document.getElementById('btn-connect'),
+    run: document.getElementById('btn-run'),
+    exit: document.getElementById('btn-exit'),
+    estop: document.getElementById('btn-estop'),
+  };
+
+  let ws = null;
+
+  // Real state, driven by what the backend actually confirms -- not just
+  // whether the websocket is open. Every new websocket connection gets a
+  // fresh go2_ctrl process (see run_websocketd.sh notes), so this resets
+  // on every (re)connect.
+  let wsUp = false;
+  let ddsConnected = false;
+  let fsmRunning = false;
+
+  // Log entries are always English (raw backend/JSON output), regardless
+  // of the UI language toggle above.
+  function log(msg) {
+    const line = document.createElement('div');
+    const time = new Date().toLocaleTimeString();
+    line.textContent = `[${time}] ${msg}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateButtons() {
+    buttons.connect.disabled = !wsUp || ddsConnected;
+    buttons.run.disabled = !wsUp || !ddsConnected || fsmRunning;
+    buttons.exit.disabled = !wsUp || !fsmRunning;
+    buttons.estop.disabled = !wsUp || !fsmRunning;
+  }
+
+  function setWsUp(isUp) {
+    wsUp = isUp;
+    dot.classList.toggle('up', isUp);
+    connText.textContent = isUp
+      ? (translations[currentLang] || translations.en).connected
+      : (translations[currentLang] || translations.en).disconnected;
+    if (!isUp) {
+      // A dropped connection means the backend process is gone too --
+      // don't leave stale "connected"/"running" state lying around.
+      ddsConnected = false;
+      fsmRunning = false;
+    }
+    updateButtons();
+  }
+
+  function connectWs() {
+    const url = `ws://${location.hostname}:8888`;
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      setWsUp(true);
+      log('Connected to control server');
+    };
+
+    ws.onmessage = (evt) => {
+      log(evt.data);
+      try {
+        const data = JSON.parse(evt.data);
+        if (data.status === 'dds_connected' || data.status === 'already_connected') {
+          ddsConnected = true;
+        }
+        if (data.status === 'fsm_started' || data.status === 'already_running') {
+          fsmRunning = true;
+        }
+        if (data.status === 'fsm_unloaded') {
+          // Exit sequence finished and the FSM was actually torn down --
+          // back to the pre-run state (DDS still connected, no policy loaded).
+          fsmRunning = false;
+        }
+        // estop_triggered leaves the FSM object alive (just forced to
+        // Passive) so Exit/Estop stay usable; Run stays disabled until an
+        // Exit completes and sends fsm_unloaded.
+      } catch (e) {
+        // not JSON, ignore
+      }
+      updateButtons();
+    };
+
+    ws.onclose = () => {
+      setWsUp(false);
+      log('Lost connection to control server, retrying...');
+      setTimeout(connectWs, 1500);
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }
+
+  function send(cmd) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(cmd);
+      log(`> ${cmd}`);
+    }
+  }
+
+  buttons.connect.addEventListener('click', () => send('connect'));
+  buttons.run.addEventListener('click', () => send('run_policy'));
+  buttons.exit.addEventListener('click', () => send('exit_policy'));
+  buttons.estop.addEventListener('click', () => send('estop'));
+
+  applyLanguage(currentLang);
+  setWsUp(false);
+  connectWs();
+</script>
+</body>
+</html>

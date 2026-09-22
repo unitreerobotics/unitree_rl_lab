@@ -20,15 +20,14 @@ Currently supports Unitree **Go2**, **H1** and **G1-29dof** robots.
 
 </div>
 
-## Installation
-
+## Installation 
 - Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
 - Install the Unitree RL IsaacLab standalone environments.
 
   - Clone or copy this repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
 
     ```bash
-    git clone https://github.com/unitreerobotics/unitree_rl_lab.git
+    git clone https://github.com/sallu-786/unitree_rl_lab_working_repo.git
     ```
   - Use a python interpreter that has Isaac Lab installed, install the library in editable mode using:
 
@@ -37,7 +36,13 @@ Currently supports Unitree **Go2**, **H1** and **G1-29dof** robots.
     ./unitree_rl_lab.sh -i
     # restart your shell to activate the environment changes.
     ```
-- Download unitree robot description files
+- Download unitree robot description and missing Onnx files
+  Download and place the missing library files inside deploy/thirdparty/onnxruntime-linux-x64-1.22.0/lib/
+  ```
+  wget https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz
+  tar -xzf onnxruntime-linux-x64-1.22.0.tgz
+  ```
+  Download Robot description(USD or URDF) files
 
   *Method 1: Using USD Files*
   - Download unitree usd files from [unitree_model](https://huggingface.co/datasets/unitreerobotics/unitree_model/tree/main), keeping folder structure
@@ -102,7 +107,7 @@ mkdir build && cd build
 cmake .. -DBUILD_EXAMPLES=OFF # Install on the /usr/local directory
 sudo make install
 # Compile the robot_controller
-cd unitree_rl_lab/deploy/robots/g1_29dof # or other robots
+cd unitree_rl_lab_working_repo/deploy/robots/g1_29dof # or other robots
 mkdir build && cd build
 cmake .. && make
 ```
@@ -124,8 +129,8 @@ cd unitree_mujoco/simulate/build
 ```
 
 ```bash
-cd unitree_rl_lab/deploy/robots/g1_29dof/build
-./g1_ctrl
+cd unitree_rl_lab_working_repo/deploy/robots/g1_29dof/build
+./go2_ctrl
 # 1. press [L2 + Up] to set the robot to stand up
 # 2. Click the mujoco window, and then press 8 to make the robot feet touch the ground.
 # 3. Press [R1 + X] to run the policy.
@@ -137,8 +142,31 @@ cd unitree_rl_lab/deploy/robots/g1_29dof/build
 You can use this program to control the robot directly, but make sure the on-borad control program has been closed.
 
 ```bash
-./g1_ctrl --network eth0 # eth0 is the network interface name.
+./go2_ctrl --network eth0 # eth0 is the network interface name.
 ```
+
+### Sim2Sim/Sim2Real with Web Portal (Tested for Go2 only)
+install websocketd using
+
+
+```bash
+sudo apt install websocketd
+```
+If simulation run
+
+```bash
+# start simulation
+cd unitree_mujoco/simulate/build
+./unitree_mujoco
+```
+
+in another terminal run 
+```bash
+cd unitree_rl_lab_working_repo
+./web_portal.sh #make sure "NETWORK_IFACE" is correctly set in this script, use ip addr to find your interface used to connect to robot
+```
+For real robot you dont need to run ./unitree_mujoco just run ./web_portal.sh with correct network interface
+
 
 ## Acknowledgements
 

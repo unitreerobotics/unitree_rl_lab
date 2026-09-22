@@ -1,3 +1,40 @@
+# FSM:
+#   _: # enabled fsms
+#     Passive:
+#       id: 1
+#     FixStand:
+#       id: 2
+#     Velocity:
+#       id: 3
+#       type: RLBase
+#   Passive:
+#     transitions: 
+#       FixStand: LT + A.on_pressed
+#     mode: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+#     kd: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]
+#   FixStand:
+#     transitions: 
+#       Passive: LT + B.on_pressed
+#       Velocity: start.on_pressed
+#     kp: [60, 80, 80, 60, 80, 80, 60, 80, 80, 60, 80, 80]
+#     kd: [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4]
+#     ts: [0, 1, 2]
+#     qs: [
+#       [],
+#       [0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65],
+#       [0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5],
+#     ]
+#   Velocity:
+#     transitions: 
+#       Passive: LT + B.on_pressed
+#     policy_dir: ../../../logs/rsl_rl/unitree_go2_velocity
+    
+
+
+
+
+
+
 FSM:
   _: # enabled fsms
     Passive:
@@ -7,6 +44,8 @@ FSM:
     Velocity:
       id: 3
       type: RLBase
+    Crouch:
+      id: 4
   Passive:
     transitions: 
       FixStand: LT + A.on_pressed
@@ -16,16 +55,37 @@ FSM:
     transitions: 
       Passive: LT + B.on_pressed
       Velocity: start.on_pressed
+      Crouch: LT + A.on_pressed
     kp: [60, 80, 80, 60, 80, 80, 60, 80, 80, 60, 80, 80]
     kd: [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4]
-    ts: [0, 1, 2]
+    ts: [0, 2]
     qs: [
       [],
-      [0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65, 0.0, 1.36, -2.65],
       [0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5, 0., 0.8, -1.5],
+      
     ]
   Velocity:
     transitions: 
       Passive: LT + B.on_pressed
+      FixStand: LT + A.on_pressed
     policy_dir: ../../../logs/rsl_rl/unitree_go2_velocity
+  Crouch:
+    transitions:
+      Passive: LT + B.on_pressed
+      FixStand: LT+ A.on_pressed
+    kp: [60, 80, 80, 60, 80, 80, 60, 80, 80, 60, 80, 80]
+    kd: [5, 4, 4, 5, 4, 4, 5, 4, 4, 5, 4, 4]
+    ts: [0, 3]
+    qs: [
+      [],
+      [
+        -0.05, 1.22, -2.72,  
+         0.05, 1.22, -2.72,  
+        -0.35, 1.25, -2.78,  
+         0.35, 1.25, -2.78  
+      ],
+    ]
+<<<<<<< HEAD
     
+=======
+>>>>>>> 62f077e934c9ed3be76221be7658a776d0978593
