@@ -96,7 +96,7 @@ REGISTER_OBSERVATION(motion_anchor_ori_b)
     auto ref_quat_w = anchor_quat_w(State_Mimic::motion);
 
     auto rot_ = (init_quat * ref_quat_w).conjugate() * real_quat_w;
-    auto rot = rot_.toRotationMatrix().transpose();
+    Eigen::Matrix3f rot = rot_.toRotationMatrix().transpose();
 
     Eigen::Matrix<float, 6, 1> data;
     data << rot(0, 0), rot(0, 1), rot(1, 0), rot(1, 1), rot(2, 0), rot(2, 1);
