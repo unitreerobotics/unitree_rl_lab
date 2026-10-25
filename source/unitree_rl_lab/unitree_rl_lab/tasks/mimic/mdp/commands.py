@@ -31,6 +31,11 @@ class MotionLoader:
     def __init__(self, motion_file: str, body_indexes: Sequence[int], device: str = "cpu"):
         assert os.path.isfile(motion_file), f"Invalid file path: {motion_file}"
         data = np.load(motion_file)
+        if "quat_order" not in data or str(data["quat_order"].item()) != "xyzw":
+            raise ValueError(
+                f"Motion {motion_file} must be regenerated with scripts/mimic/csv_to_npz.py "
+                "for Isaac Lab 3 (xyzw quaternions)."
+            )
         self.fps = data["fps"]
         self.joint_pos = torch.tensor(data["joint_pos"], dtype=torch.float32, device=device)
         self.joint_vel = torch.tensor(data["joint_vel"], dtype=torch.float32, device=device)
@@ -75,7 +80,7 @@ class MotionCommand(CommandTerm):
         self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.body_pos_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 3, device=self.device)
         self.body_quat_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 4, device=self.device)
-        self.body_quat_relative_w[:, :, 0] = 1.0
+        self.body_quat_relative_w[:, :, 3] = 1.0
 
         self.bin_count = int(self.motion.time_step_total // (1 / (env.cfg.decimation * env.cfg.sim.dt))) + 1
         self.bin_failed_count = torch.zeros(self.bin_count, dtype=torch.float, device=self.device)
@@ -240,7 +245,9 @@ class MotionCommand(CommandTerm):
         self.metrics["sampling_top1_prob"][:] = pmax
         self.metrics["sampling_top1_bin"][:] = imax.float() / self.bin_count
 
-    def _resample_command(self, env_ids: Sequence[int]):
+    def _resample_command(self, env_ids: Sequence[int] | slice):
+        if isinstance(env_ids, slice):
+            env_ids = torch.arange(self.num_envs, device=self.device)[env_ids]
         if len(env_ids) == 0:
             return
         self._adaptive_sampling(env_ids)

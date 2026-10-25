@@ -13,6 +13,7 @@ class BasePPORunnerCfg(RslRlOnPolicyRunnerCfg):
     max_iterations = 30000
     save_interval = 500
     experiment_name = ""  # same as task name
+    obs_groups = {"actor": ["policy"], "critic": ["critic"]}
     empirical_normalization = False
     policy = RslRlPpoActorCriticCfg(
         init_noise_std=1.0,

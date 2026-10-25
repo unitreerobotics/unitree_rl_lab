@@ -29,9 +29,11 @@ parser.add_argument(
 )
 parser.add_argument("--output_name", type=str, help="The name of the motion npz file.")
 parser.add_argument("--output_fps", type=int, default=50, help="The fps of the output motion.")
+parser.add_argument("--usd_path", type=str, help="Override the G1 robot USD file path.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
+parser.add_argument("--headless", action="store_true", help="Convert the motion and exit without a window.")
 # parse the arguments
 args_cli = parser.parse_args()
 if not args_cli.output_name:
@@ -61,6 +63,9 @@ from isaaclab.utils.math import axis_angle_from_quat, quat_conjugate, quat_mul, 
 # Pre-defined configs
 ##
 from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_CFG as ROBOT_CFG  # Currently only support G1-29dof
+
+if args_cli.usd_path:
+    ROBOT_CFG = ROBOT_CFG.replace(spawn=ROBOT_CFG.spawn.replace(usd_path=args_cli.usd_path))
 
 
 @configclass
@@ -120,7 +125,7 @@ class MotionLoader:
         motion = motion.to(torch.float32).to(self.device)
         self.motion_base_poss_input = motion[:, :3]
         self.motion_base_rots_input = motion[:, 3:7]
-        self.motion_base_rots_input = self.motion_base_rots_input[:, [3, 0, 1, 2]]  # convert to wxyz
+        # CSV and Isaac Lab 3 use xyzw quaternion order.
         self.motion_dof_poss_input = motion[:, 7:]
 
         self.input_frames = motion.shape[0]
@@ -238,6 +243,7 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
     # ------- data logger -------------------------------------------------------
     log = {
         "fps": [args_cli.output_fps],
+        "quat_order": "xyzw",
         "joint_pos": [],
         "joint_vel": [],
         "body_pos_w": [],
@@ -305,6 +311,8 @@ def run_simulator(sim: sim_utils.SimulationContext, scene: InteractiveScene):
 
             np.savez(args_cli.output_name, **log)
             print("[INFO]: Motion npz file saved to", args_cli.output_name)
+            if args_cli.headless:
+                break
 
 
 def main():

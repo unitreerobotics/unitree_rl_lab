@@ -47,6 +47,7 @@ parser.add_argument(
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
+parser.add_argument("--headless", action="store_true", help="Run without the simulator window.")
 argcomplete.autocomplete(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
@@ -106,7 +107,7 @@ from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
-from isaaclab_tasks.utils.hydra import hydra_task_config
+from isaaclab_tasks.utils.hydra import resolve_task_config
 
 import unitree_rl_lab.tasks  # noqa: F401
 from unitree_rl_lab.utils.export_deploy_cfg import export_deploy_cfg
@@ -117,7 +118,6 @@ torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 
 
-@hydra_task_config(args_cli.task, "rsl_rl_cfg_entry_point")
 def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     """Train with RSL-RL agent."""
     # override configurations with non-hydra CLI arguments
@@ -209,6 +209,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
 if __name__ == "__main__":
     # run the main function
-    main()
+    main(*resolve_task_config(args_cli.task, "rsl_rl_cfg_entry_point", overrides=hydra_args))
     # close sim app
     simulation_app.close()

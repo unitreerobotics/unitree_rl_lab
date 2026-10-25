@@ -23,6 +23,7 @@ parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
+parser.add_argument("--max_steps", type=int, default=None, help="Stop playback after this many simulation steps.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
     "--use_pretrained_checkpoint",
@@ -34,7 +35,10 @@ parser.add_argument("--real-time", action="store_true", default=False, help="Run
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
+parser.add_argument("--headless", action="store_true", help="Run without the simulator window.")
 args_cli = parser.parse_args()
+if args_cli.visualizer is None and not args_cli.headless:
+    args_cli.visualizer = ["kit"]
 # always enable cameras to record video
 if args_cli.video:
     args_cli.enable_cameras = True
@@ -49,6 +53,7 @@ import gymnasium as gym
 import os
 import time
 import torch
+import yaml
 
 from rsl_rl.runners import OnPolicyRunner
 
@@ -56,8 +61,8 @@ import isaaclab_tasks  # noqa: F401
 from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
-from isaaclab.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
-from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
+from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 from isaaclab_tasks.utils import get_checkpoint_path
 
 import unitree_rl_lab.tasks  # noqa: F401
@@ -69,7 +74,7 @@ def main():
     # parse configuration
     env_cfg = parse_env_cfg(
         args_cli.task,
-        device=args_cli.device,
+        device=args_cli.device or "cuda:0",
         num_envs=args_cli.num_envs,
         use_fabric=not args_cli.disable_fabric,
         entry_point_key="play_env_cfg_entry_point",
@@ -91,6 +96,12 @@ def main():
         resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     log_dir = os.path.dirname(resume_path)
+    saved_env_path = os.path.join(log_dir, "params", "env.yaml")
+    if os.path.isfile(saved_env_path):
+        # Read only the USD path without constructing serialized Python objects.
+        with open(saved_env_path) as saved_env_file:
+            saved_spawn = yaml.load(saved_env_file, Loader=yaml.BaseLoader)["scene"]["robot"]["spawn"]
+        env_cfg.scene.robot.spawn.usd_path = saved_spawn["usd_path"]
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
@@ -129,27 +140,10 @@ def main():
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
-    # extract the neural network module
-    # we do this in a try-except to maintain backwards compatibility.
-    try:
-        # version 2.3 onwards
-        policy_nn = runner.alg.policy
-    except AttributeError:
-        # version 2.2 and below
-        policy_nn = runner.alg.actor_critic
-
-    # extract the normalizer
-    if hasattr(policy_nn, "actor_obs_normalizer"):
-        normalizer = policy_nn.actor_obs_normalizer
-    elif hasattr(policy_nn, "student_obs_normalizer"):
-        normalizer = policy_nn.student_obs_normalizer
-    else:
-        normalizer = None
-
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+    runner.export_policy_to_jit(export_model_dir)
+    runner.export_policy_to_onnx(export_model_dir)
 
     dt = env.unwrapped.step_dt
 
@@ -157,6 +151,7 @@ def main():
     obs = env.get_observations()
     if version("rsl-rl-lib").startswith("2.3."):
         obs, _ = env.get_observations()
+    print("[INFO]: Playback started. Press Ctrl+C to stop.", flush=True)
     timestep = 0
     # simulate environment
     while simulation_app.is_running():
@@ -167,11 +162,11 @@ def main():
             actions = policy(obs)
             # env stepping
             obs, _, _, _ = env.step(actions)
-        if args_cli.video:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
+        timestep += 1
+        if args_cli.video and timestep >= args_cli.video_length:
+            break
+        if args_cli.max_steps is not None and timestep >= args_cli.max_steps:
+            break
 
         # time delay for real-time evaluation
         sleep_time = dt - (time.time() - start_time)

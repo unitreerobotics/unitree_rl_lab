@@ -19,7 +19,8 @@ from isaaclab.terrains import TerrainImporterCfg
 # Pre-defined configs
 ##
 from isaaclab.utils import configclass
-from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
+from isaaclab.utils.noise import UniformNoiseCfg as Unoise
+from isaaclab_physx.physics import PhysxCfg
 
 import unitree_rl_lab.tasks.mimic.mdp as mdp
 from unitree_rl_lab.assets.robots.unitree import UNITREE_G1_29DOF_MIMIC_ACTION_SCALE
@@ -334,7 +335,7 @@ class RobotEnvCfg(ManagerBasedRLEnvCfg):
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
-        self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+        self.sim.physics = PhysxCfg(gpu_max_rigid_patch_count=10 * 2**15)
 
 
 class RobotPlayEnvCfg(RobotEnvCfg):

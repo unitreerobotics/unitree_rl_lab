@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import random
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -94,4 +95,6 @@ def update_rsl_rl_cfg(agent_cfg: RslRlOnPolicyRunnerCfg, args_cli: argparse.Name
         task_name = args_cli.task
         agent_cfg.experiment_name = task_name.lower().replace("-", "_").removesuffix("_play")
 
-    return agent_cfg
+    from isaaclab_rl.rsl_rl import handle_deprecated_rsl_rl_cfg
+
+    return handle_deprecated_rsl_rl_cfg(agent_cfg, version("rsl-rl-lib"))
