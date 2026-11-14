@@ -107,6 +107,46 @@ mkdir build && cd build
 cmake .. && make
 ```
 
+To run the policy with [ExecuTorch](https://github.com/pytorch/executorch) instead of ONNX Runtime, build with `-DUSE_EXECUTORCH=ON`:
+
+- The controller then loads `exported/policy.pte` instead of `exported/policy.onnx`, from each `policy_dir` in `config.yaml`. When `policy_dir` is a training log folder, the newest run with an `exported` folder is used, so put the `.pte` there.
+- The program takes the same inputs as `policy.onnx`. It stores their names, in the order `forward()` takes them, in an `input_names` constant method, and uses the XNNPACK backend that the controllers link. The G1 policies in this repo come only as `policy.onnx`, so with the default `config.yaml` each enabled policy needs a `.pte` first.
+- The `export_policy_to_executorch` exporter proposed for rsl_rl in [rsl_rl#271](https://github.com/leggedrobotics/rsl_rl/pull/271) writes such programs, but it needs rsl_rl 5, which is newer than the rsl_rl that Isaac Lab 2.3 installs. To export a policy trained here with ExecuTorch directly, use a separate Python environment, not the Isaac Lab one: `pip install executorch==1.6.0` brings torch 2.15.0, which would replace the torch that Isaac Lab uses. Rebuild the actor network there and load its weights from the training checkpoint (`num_obs` and `num_actions` are the sizes of the input and output of `policy.onnx`):
+
+  ```python
+  import torch
+  from torch import nn
+  from executorch.backends.xnnpack.partition.xnnpack_partitioner import XnnpackPartitioner
+  from executorch.exir import to_edge_transform_and_lower
+
+  # The actor from rsl_rl_ppo_cfg.py: actor_hidden_dims=[512, 256, 128], activation="elu", no observation normalization.
+  policy = nn.Sequential(
+      nn.Linear(num_obs, 512), nn.ELU(),
+      nn.Linear(512, 256), nn.ELU(),
+      nn.Linear(256, 128), nn.ELU(),
+      nn.Linear(128, num_actions),
+  )
+  state = torch.load("model_<iteration>.pt", map_location="cpu")["model_state_dict"]
+  policy.load_state_dict({k.removeprefix("actor."): v for k, v in state.items() if k.startswith("actor.")})
+  policy.eval()
+
+  program = to_edge_transform_and_lower(
+      torch.export.export(policy, (torch.zeros(1, num_obs),)),
+      partitioner=[XnnpackPartitioner()],
+      constant_methods={"input_names": ["obs"]},
+  ).to_executorch()
+  open("exported/policy.pte", "wb").write(program.buffer)
+  ```
+
+- The build still needs ONNX Runtime, as the default build does.
+- To build, the controller only needs the C++ library inside the ExecuTorch Python package, so install it without its dependencies, in its own Python environment (ExecuTorch 1.6.0 needs Python 3.11 or newer). The controller loads the library from that environment every time it starts, so keep the environment. The build needs CMake 3.28 or newer.
+
+```bash
+pip install --no-deps executorch==1.6.0
+cmake .. -DUSE_EXECUTORCH=ON -DCMAKE_PREFIX_PATH="$(python -c 'import executorch, pathlib; print(pathlib.Path(executorch.__path__[0]) / "share" / "cmake")')"
+make
+```
+
 ### Sim2Sim
 
 Installing the [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco?tab=readme-ov-file#installation).

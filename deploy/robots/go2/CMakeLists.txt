@@ -19,6 +19,8 @@ link_libraries(
   ${PROJECT_SOURCE_DIR}/../../thirdparty/onnxruntime-linux-x64-1.22.0/lib/libonnxruntime.so
 )
 
+include(${PROJECT_SOURCE_DIR}/../../cmake/executorch.cmake)
+
 file(GLOB_RECURSE ADD_SRC_LIST
   src/*.cpp
 )
